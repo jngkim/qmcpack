@@ -732,7 +732,7 @@ $
 
 
       Vector<ValueType> WS;
-      Vector<IndexType> Piv;
+      Vector<lapack_int> Piv;
       WS.resize(k);
       Piv.resize(k);
       std::complex<RealType> logdet = 0.0;
@@ -978,7 +978,7 @@ void RotatedSPOs::table_method_evalWF(std::vector<ValueType>& dlogpsi,
       }
 
       Vector<ValueType> WS;
-      Vector<IndexType> Piv;
+      Vector<lapack_int> Piv;
       WS.resize(k);
       Piv.resize(k);
       std::complex<RealType> logdet = 0.0;

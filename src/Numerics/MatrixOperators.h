@@ -55,8 +55,8 @@ inline void product(const Matrix<T>& A, const Matrix<T>& B, Matrix<T>& C)
 template<typename T>
 inline void product_ABt(const Matrix<T>& A, const Matrix<T>& B, Matrix<T>& C)
 {
-  const char transa = 't';
-  const char transb = 'n';
+  const char transa = 'T';
+  const char transb = 'N';
   const T one(1.0);
   const T zero(0.0);
   BLAS::gemm(transa, transb, B.rows(), A.rows(), B.cols(), one, B.data(), B.cols(), A.data(), A.cols(), zero, C.data(),
@@ -66,8 +66,8 @@ inline void product_ABt(const Matrix<T>& A, const Matrix<T>& B, Matrix<T>& C)
 template<typename T>
 inline void product_AtB(const Matrix<T>& A, const Matrix<T>& B, Matrix<T>& C)
 {
-  const char transa = 'n';
-  const char transb = 't';
+  const char transa = 'N';
+  const char transb = 'T';
   const T one(1.0);
   const T zero(0.0);
   BLAS::gemm(transa, transb, B.cols(), A.cols(), B.rows(), one, B.data(), B.cols(), A.data(), A.cols(), zero, C.data(),
@@ -248,7 +248,7 @@ inline void product(const Matrix<double>& A,
   const double zero = 0.0;
   const char transa = 'N';
   const char transb = 'N';
-  dgemm(transa, transb, D, A.rows(), x.size(), one, x.data()->begin(), D, A.data(), A.cols(), zero, yptr->begin(), D);
+  BLAS::gemm(transa, transb, D, A.rows(), x.size(), one, x.data()->begin(), D, A.data(), A.cols(), zero, yptr->begin(), D);
 }
 
 /** static function to perform y=Ax for generic matrix and vector
@@ -262,7 +262,7 @@ inline void product(const Matrix<std::complex<double>>& A,
   const char transb = 'N';
   const std::complex<double> zone(1.0, 0.0);
   const std::complex<double> zero(0.0, 0.0);
-  zgemm(transa, transb, D, A.rows(), x.size(), zone, x.data()->begin(), D, A.data(), A.cols(), zero, yptr->begin(), D);
+  BLAS::gemm(transa, transb, D, A.rows(), x.size(), zone, x.data()->begin(), D, A.data(), A.cols(), zero, yptr->begin(), D);
 }
 
 
@@ -275,7 +275,7 @@ inline void product(const Matrix<std::complex<double>>& A,
   const char transa = 'T';
   const std::complex<double> zone(1.0, 0.0);
   const std::complex<double> zero(0.0, 0.0);
-  zgemv(transa, A.cols(), A.rows(), zone, A.data(), A.cols(), x.data(), 1, zero, yptr, 1);
+  BLAS::gemv(transa, A.cols(), A.rows(), zone, A.data(), A.cols(), x.data(), 1, zero, yptr, 1);
 }
 
 /** static function to perform y=Ax for generic matrix and vector
@@ -301,7 +301,7 @@ inline void product(const Matrix<std::complex<double>>& A,
   const char transa = 'T';
   const std::complex<double> zone(1.0, 0.0);
   const std::complex<double> zero(0.0, 0.0);
-  zgemv(transa, A.cols(), A.rows(), zone, A.data(), A.cols(), x, 1, zero, yptr, 1);
+  BLAS::gemv(transa, A.cols(), A.rows(), zone, A.data(), A.cols(), x, 1, zero, yptr, 1);
 }
 
 /** static function to perform y=Ax for generic matrix and vector

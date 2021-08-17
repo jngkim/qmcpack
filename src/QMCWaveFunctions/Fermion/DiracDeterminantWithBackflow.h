@@ -195,7 +195,7 @@ public:
   ValueType* LastAddressOfdV;
 
   Vector<ValueType> WorkSpace;
-  Vector<IndexType> Pivot;
+  Vector<lapack_int> Pivot;
 
   ValueMatrix_t psiMinv_temp;
   ValueType* FirstAddressOfGGG;

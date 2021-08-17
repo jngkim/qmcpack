@@ -16,6 +16,8 @@
 #ifndef OHMMS_BLAS_FUNCTIONDEFS_H
 #define OHMMS_BLAS_FUNCTIONDEFS_H
 
+#if !defined(HAVE_MKL)
+
 #include <complex>
 #include <cstring>
 
@@ -913,4 +915,5 @@ extern "C"
   void cpotrf(const char& UPLO, const int& N, std::complex<float>* A, const int& LDA, int& INFO);
   void zpotrf(const char& UPLO, const int& N, std::complex<double>* A, const int& LDA, int& INFO);
 }
+#endif //!HAVE_MKL
 #endif

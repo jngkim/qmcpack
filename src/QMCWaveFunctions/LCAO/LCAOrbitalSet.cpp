@@ -101,8 +101,8 @@ void LCAOrbitalSet::evaluateValue(const ParticleSet& P, int iat, ValueVector_t& 
 template<typename T, unsigned D>
 inline void Product_ABt(const VectorSoaContainer<T, D>& A, const Matrix<T>& B, VectorSoaContainer<T, D>& C)
 {
-  constexpr char transa = 't';
-  constexpr char transb = 'n';
+  constexpr char transa = 'T';
+  constexpr char transb = 'N';
   constexpr T zone(1);
   constexpr T zero(0);
   BLAS::gemm(transa, transb, B.rows(), D, B.cols(), zone, B.data(), B.cols(), A.data(), A.capacity(), zero, C.data(),

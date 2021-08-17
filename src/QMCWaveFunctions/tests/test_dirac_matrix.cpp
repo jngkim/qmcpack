@@ -183,8 +183,8 @@ TEST_CASE("DiracMatrix_inverse_matching_2", "[wavefunction][fermion]")
   // lets check Xgetrf against the cuBLAS batched
 
   simd::transpose(a.data(), a.rows(), a.cols(), a_T.data(), a_T.rows(), a_T.cols());
-  int pivot[4]{-1, -1, -1, -1};
-  int status = Xgetrf(a_T.rows(), a_T.cols(), a_T.data(), a_T.cols(), pivot);
+  lapack_int pivot[4]{-1, -1, -1, -1};
+  auto status=LAPACK::getrf(a_T.rows(), a_T.cols(), a_T.data(), a_T.cols(), pivot);
   std::vector<double> lu{7.0,
                          0.8571428571428571,
                          0.7142857142857142,
@@ -264,8 +264,8 @@ TEST_CASE("DiracMatrix_inverse_complex", "[wavefunction][fermion]")
   a(3, 3) = {8.0, -2.0};
 
   simd::transpose(a.data(), a.rows(), a.cols(), a_T.data(), a_T.rows(), a_T.cols());
-  int pivot[4]{-1, -1, -1, -1};
-  int status = Xgetrf(a_T.rows(), a_T.cols(), a_T.data(), a_T.cols(), pivot);
+  lapack_int pivot[4]{-1, -1, -1, -1};
+  auto status=LAPACK::getrf(a_T.rows(), a_T.cols(), a_T.data(), a_T.cols(), pivot);
 
   double lu[32]{8.0,
                 0.5,

@@ -75,7 +75,7 @@ class DiracMatrixComputeOMPTarget : public Resource
       T_FP tmp;
       FullPrecReal lw;
       auto psi_M_ptr = psi_Ms.data() + iw * n * n;
-      Xgetri(lda, psi_M_ptr, lda, pivots_.data() + iw * n, &tmp, lwork_);
+      auto status=LAPACK::getri(lda, psi_M_ptr, lda, pivots_.data() + iw * n, &tmp, lwork_);
       convert(tmp, lw);
       lwork_ = static_cast<int>(lw);
       m_work_.resize(lwork_);
@@ -95,7 +95,7 @@ class DiracMatrixComputeOMPTarget : public Resource
     lwork_ = -1;
     T_FP tmp;
     FullPrecReal lw;
-    Xgetri(lda, psi_M.data(), lda, pivots_.data(), &tmp, lwork_);
+    auto status=LAPACK::getri(lda, psi_M.data(), lda, pivots_.data(), &tmp, lwork_);
     convert(tmp, lw);
     lwork_ = static_cast<int>(lw);
     m_work_.resize(lwork_);
@@ -116,12 +116,12 @@ class DiracMatrixComputeOMPTarget : public Resource
     BlasThreadingEnv knob(getNextLevelNumThreads());
     if (lwork_ < lda)
       reset(invMat, n, lda);
-    Xgetrf(n, n, invMat.data(), lda, pivots_.data());
+    auto status=LAPACK::getrf(n, n, invMat.data(), lda, pivots_.data());
     for (int i = 0; i < n; i++)
       LU_diags_fp_[i] = invMat.data()[i * lda + i];
     log_value = {0.0, 0.0};
     computeLogDet(LU_diags_fp_.data(), n, pivots_.data(), log_value);
-    Xgetri(n, invMat.data(), lda, pivots_.data(), m_work_.data(), lwork_);
+    status=LAPACK::getri(n, invMat.data(), lda, pivots_.data(), m_work_.data(), lwork_);
   }
 
 
@@ -140,13 +140,13 @@ class DiracMatrixComputeOMPTarget : public Resource
     for (int iw = 0; iw < nw; ++iw)
     {
       T_FP* LU_M = psi_Ms.data() + iw * n * n;
-      Xgetrf(n, n, LU_M, lda, pivots_.data() + iw * n);
+      auto status=LAPACK::getrf(n, n, LU_M, lda, pivots_.data() + iw * n);
       for (int i = 0; i < n; i++)
         *(LU_diags_fp_.data() + iw * n + i) = LU_M[i * lda + i];
       std::complex<TREAL> log_value{0.0, 0.0};
       computeLogDet(LU_diags_fp_.data() + iw * n, n, pivots_.data() + iw * n, log_value);
       log_values[iw] = log_value;
-      Xgetri(n, LU_M, lda, pivots_.data() + iw * n, m_work_.data(), lwork_);
+      status=LAPACK::getri(n, LU_M, lda, pivots_.data() + iw * n, m_work_.data(), lwork_);
     }
   }
 

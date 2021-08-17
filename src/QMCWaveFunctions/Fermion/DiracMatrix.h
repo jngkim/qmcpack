@@ -12,7 +12,7 @@
 #ifndef QMCPLUSPLUS_DIRAC_MATRIX_H
 #define QMCPLUSPLUS_DIRAC_MATRIX_H
 
-#include "CPU/Blasf.h"
+#include "CPU/BLAS.hpp"
 #include "CPU/BlasThreadingEnv.h"
 #include "OhmmsPETE/OhmmsMatrix.h"
 #include "type_traits/scalar_traits.h"
@@ -21,76 +21,9 @@
 
 namespace qmcplusplus
 {
-inline int Xgetrf(int n, int m, float* restrict a, int lda, int* restrict piv)
-{
-  int status;
-  sgetrf(n, m, a, lda, piv, status);
-  return status;
-}
-
-inline int Xgetri(int n, float* restrict a, int lda, int* restrict piv, float* restrict work, int& lwork)
-{
-  int status;
-  sgetri(n, a, lda, piv, work, lwork, status);
-  return status;
-}
-
-inline int Xgetrf(int n, int m, std::complex<float>* restrict a, int lda, int* restrict piv)
-{
-  int status;
-  cgetrf(n, m, a, lda, piv, status);
-  return status;
-}
-
-/** inversion of a float matrix after lu factorization*/
-inline int Xgetri(int n,
-                  std::complex<float>* restrict a,
-                  int lda,
-                  int* restrict piv,
-                  std::complex<float>* restrict work,
-                  int& lwork)
-{
-  int status;
-  cgetri(n, a, lda, piv, work, lwork, status);
-  return status;
-}
-
-inline int Xgetrf(int n, int m, double* restrict a, int lda, int* restrict piv)
-{
-  int status;
-  dgetrf(n, m, a, lda, piv, status);
-  return status;
-}
-
-inline int Xgetri(int n, double* restrict a, int lda, int* restrict piv, double* restrict work, int& lwork)
-{
-  int status;
-  dgetri(n, a, lda, piv, work, lwork, status);
-  return status;
-}
-
-inline int Xgetrf(int n, int m, std::complex<double>* restrict a, int lda, int* restrict piv)
-{
-  int status;
-  zgetrf(n, m, a, lda, piv, status);
-  return status;
-}
-
-/** inversion of a std::complex<double> matrix after lu factorization*/
-inline int Xgetri(int n,
-                  std::complex<double>* restrict a,
-                  int lda,
-                  int* restrict piv,
-                  std::complex<double>* restrict work,
-                  int& lwork)
-{
-  int status;
-  zgetri(n, a, lda, piv, work, lwork, status);
-  return status;
-}
 
 template<typename T, typename T_FP>
-inline void computeLogDet(const T* restrict diag, int n, const int* restrict pivot, std::complex<T_FP>& logdet)
+inline void computeLogDet(const T* restrict diag, int n, const lapack_int* restrict pivot, std::complex<T_FP>& logdet)
 {
   logdet = std::complex<T_FP>();
   for (size_t i = 0; i < n; i++)
@@ -105,7 +38,7 @@ class DiracMatrix
 {
   typedef typename scalar_traits<T_FP>::real_type real_type_fp;
   aligned_vector<T_FP> m_work;
-  aligned_vector<int> m_pivot;
+  aligned_vector<lapack_int> m_pivot;
   int Lwork;
   /// scratch space used for mixed precision
   Matrix<T_FP> psiM_fp;
@@ -119,7 +52,7 @@ class DiracMatrix
     Lwork = -1;
     T_FP tmp;
     real_type_fp lw;
-    int status = Xgetri(lda, invMat_ptr, lda, m_pivot.data(), &tmp, Lwork);
+    int status=LAPACK::getri(lda, invMat_ptr, lda, m_pivot.data(), &tmp, Lwork);
     if (status != 0)
     {
       std::ostringstream msg;
@@ -145,7 +78,7 @@ class DiracMatrix
     BlasThreadingEnv knob(getNextLevelNumThreads());
     if (Lwork < lda)
       reset(invMat, lda);
-    int status = Xgetrf(n, n, invMat, lda, m_pivot.data());
+    int status=LAPACK::getrf(n, n, invMat, lda, m_pivot.data());
     if (status != 0)
     {
       std::ostringstream msg;
@@ -155,7 +88,7 @@ class DiracMatrix
     for (int i = 0; i < n; i++)
       LU_diag[i] = invMat[i * lda + i];
     computeLogDet(LU_diag.data(), n, m_pivot.data(), LogDet);
-    status = Xgetri(n, invMat, lda, m_pivot.data(), m_work.data(), Lwork);
+    status=LAPACK::getri(n, invMat, lda, m_pivot.data(), m_work.data(), Lwork);
     if (status != 0)
     {
       std::ostringstream msg;

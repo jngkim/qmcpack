@@ -32,7 +32,7 @@ template<typename T>
 struct MultiDiracDeterminantCalculator
 {
   std::vector<T> M;
-  std::vector<int> Pivot;
+  std::vector<lapack_int> Pivot;
 
   void resize(int n)
   {
