@@ -56,7 +56,7 @@ class DiracMatrixComputeOMPTarget : public Resource
   OffloadPinnedVector<T_FP> psiM_fp_;
   OffloadPinnedVector<T_FP> logdets_fp_;
   OffloadPinnedVector<T_FP> LU_diags_fp_;
-  OffloadPinnedVector<int> pivots_;
+  OffloadPinnedVector<lapack_int> pivots_;
   OffloadPinnedVector<int> infos_;
 
   Vector<char, OffloadPinnedAllocator<char>> psiM_ptrs_;
