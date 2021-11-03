@@ -21,6 +21,7 @@
 #include "OhmmsPETE/OhmmsMatrix.h"
 #include "OhmmsPETE/OhmmsVector.h"
 #include "QMCWaveFunctions/BasisSetBase.h"
+#include "CPU/BLAS.hpp"
 
 namespace qmcplusplus
 {
@@ -150,7 +151,7 @@ public:
   ValueVector_t d2psiUv, d2psiDv;
   ValueVector_t workV1, workV2;
   ValueVector_t WorkSpace;
-  IndexVector_t Pivot;
+  Vector<lapack_int> Pivot;
 
   ///current ratio
   PsiValueType curRatio;

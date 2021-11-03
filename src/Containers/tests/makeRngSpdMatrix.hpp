@@ -53,8 +53,8 @@ void makeRngSpdMatrix(testing::RandomForTest<RngValueType<T>>& rng, Matrix<T>& m
   std::vector<T> singular_values(n);
   std::vector<T> work_vec(5 * n);
   int info;
-  const char trans   = 't';
-  const char notrans = 'n';
+  const char trans   = 'T';
+  const char notrans = 'N';
   const char all     = 'a';
   BLAS::gemm(trans, notrans, n, n, n, 1.0, mat_a.data(), n, mat_a_t.data(), n, 0.0, mat_c.data(), n);
   LAPACK::gesvd(all, all, n, n, mat_c.data(), n, singular_values.data(), mat_u.data(), n, mat_v.data(), n,
@@ -93,8 +93,8 @@ void makeRngSpdMatrix(testing::RandomForTest<RngValueType<T>>& rng, Matrix<T>& m
   std::vector<T> work_vec(5 * n);
   std::vector<typename T::value_type> real_work_vec(5 * n);
   int info;
-  const char trans   = 't';
-  const char notrans = 'n';
+  const char trans   = 'T';
+  const char notrans = 'N';
   const char all     = 'a';
   BLAS::gemm(trans, notrans, n, n, n, 1.0, mat_a.data(), n, mat_a_t.data(), n, 0.0, mat_c.data(), n);
   LAPACK::gesvd(all, all, n, n, mat_c.data(), n, singular_values.data(), mat_u.data(), n, mat_v.data(), n,

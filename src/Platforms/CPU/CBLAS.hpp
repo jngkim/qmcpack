@@ -14,18 +14,39 @@
 //////////////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef QMCPLUSPLUS_NUMERIC_BLAS_H
-#define QMCPLUSPLUS_NUMERIC_BLAS_H
+#ifndef QMCPLUSPLUS_NUMERIC_MKL_H
+#define QMCPLUSPLUS_NUMERIC_MKL_H
 
-#if defined(HAVE_MKL)
-#include "CBLAS.hpp"
-#else
-//generic header for blas routines
-#include "Blasf.h"
+#include <complex>
+#include <iostream>
+#include "mkl_cblas.h"
+#include "mkl_lapacke.h"
 
-#ifndef lapack_int
-#define lapack_int int
-#endif
+/** Interfaces to blas library using MKL
+ *
+ *  Arguments (float/double/complex\<float\>/complex\<double\>) determine
+ *  which BLAS routines are actually used.
+ *  Note that symv can be call in many ways.
+ */
+inline MKL_Complex16* MM(std::complex<double>* a)
+{
+  return reinterpret_cast<MKL_Complex16*>(a);
+}
+
+inline MKL_Complex8* MM(std::complex<float>* a)
+{
+  return reinterpret_cast<MKL_Complex8*>(a);
+}
+
+inline const MKL_Complex16* MM(const std::complex<double>* a)
+{
+  return reinterpret_cast<const MKL_Complex16*>(a);
+}
+
+inline const MKL_Complex8* MM(const std::complex<float>* a)
+{
+  return reinterpret_cast<const MKL_Complex8*>(a);
+}
 
 /** Interfaces to blas library
  *
@@ -44,57 +65,18 @@
  */
 namespace BLAS
 {
-  constexpr int INCX     = 1;
-  constexpr int INCY     = 1;
-  constexpr char UPLO    = 'L';
-  constexpr char TRANS   = 'T';
-  constexpr char NOTRANS = 'N';
-
-  constexpr float sone                 = 1.0e0;
-  constexpr float szero                = 0.0e0;
-  constexpr double done                = 1.0e0;
-  constexpr double dzero               = 0.0e0;
-  constexpr std::complex<float> cone   = 1.0e0;
-  constexpr std::complex<float> czero  = 0.0e0;
-  constexpr std::complex<double> zone  = 1.0e0;
-  constexpr std::complex<double> zzero = 0.0e0;
-
-  inline static void axpy(int n, double x, const double* a, double* b) { daxpy(n, x, a, INCX, b, INCY); }
-
-  inline static void axpy(int n, double x, const double* a, int incx, double* b, int incy)
-  {
-    daxpy(n, x, a, incx, b, incy);
+  template<typename T>
+  inline static void axpy(int n, T x, const T* restrict a, T* restrict b) { 
+    for(int i=0; i<n; ++i) b[i]+=x*a[i];
   }
 
-  inline static void axpy(int n, const double* a, double* b) { daxpy(n, done, a, INCX, b, INCY); }
-
-  inline static void axpy(int n, float x, const float* a, int incx, float* b, int incy)
-  {
-    saxpy(n, x, a, incx, b, incy);
+  template<typename T>
+  inline static void axpy(int n, T x, const T* restrict a, int inca, T* restrict b, int incb) { 
+    const int nmax=n*inca;
+    for(int i=0,j=0; i<nmax; i+=inca,j+=incb) b[i]+=x*a[j];
   }
 
-  inline static void axpy(int n, float x, const float* a, float* b) { saxpy(n, x, a, INCX, b, INCY); }
-
-  inline static void axpy(int n,
-                          const std::complex<float> x,
-                          const std::complex<float>* a,
-                          int incx,
-                          std::complex<float>* b,
-                          int incy)
-  {
-    caxpy(n, x, a, incx, b, incy);
-  }
-
-  inline static void axpy(int n,
-                          const std::complex<double> x,
-                          const std::complex<double>* a,
-                          int incx,
-                          std::complex<double>* b,
-                          int incy)
-  {
-    zaxpy(n, x, a, incx, b, incy);
-  }
-
+#if 0
   inline static float norm2(int n, const float* a, int incx = 1) { return snrm2(n, a, incx); }
 
   inline static float norm2(int n, const std::complex<float>* a, int incx = 1) { return scnrm2(n, a, incx); }
@@ -120,63 +102,6 @@ namespace BLAS
   inline static void scal(int n, double alpha, std::complex<double>* x, int incx = 1) { zdscal(n, alpha, x, incx); }
 
   inline static void scal(int n, float alpha, std::complex<float>* x, int incx = 1) { csscal(n, alpha, x, incx); }
-#if 0
-  inline static void gemv(int n, int m, const double* restrict amat, const double* restrict x, double* restrict y)
-  {
-    dgemv(NOTRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
-  }
-
-  inline static void gemv(int n, int m, const float* restrict amat, const float* restrict x, float* restrict y)
-  {
-    sgemv(NOTRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
-  }
-
-  inline static void gemv(int n,
-                          int m,
-                          const std::complex<double>* restrict amat,
-                          const std::complex<double>* restrict x,
-                          std::complex<double>* restrict y)
-  {
-    zgemv(NOTRANS, m, n, zone, amat, m, x, INCX, zzero, y, INCY);
-  }
-
-  inline static void gemv(int n,
-                          int m,
-                          const std::complex<float>* restrict amat,
-                          const std::complex<float>* restrict x,
-                          std::complex<float>* restrict y)
-  {
-    cgemv(NOTRANS, m, n, cone, amat, m, x, INCX, czero, y, INCY);
-  }
-
-  // amat is [n][m] in C
-  inline static void gemv_trans(int n, int m, const double* restrict amat, const double* restrict x, double* restrict y)
-  {
-    dgemv(TRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
-  }
-
-  inline static void gemv_trans(int n, int m, const float* restrict amat, const float* restrict x, float* restrict y)
-  {
-    sgemv(TRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
-  }
-
-  inline static void gemv_trans(int n,
-                                int m,
-                                const std::complex<double>* restrict amat,
-                                const std::complex<double>* restrict x,
-                                std::complex<double>* restrict y)
-  {
-    zgemv(TRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
-  }
-
-  inline static void gemv_trans(int n,
-                                int m,
-                                const std::complex<float>* restrict amat,
-                                const std::complex<float>* restrict x,
-                                std::complex<float>* restrict y)
-  {
-    cgemv(TRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
-  }
 #endif
 
   inline static void gemv(char trans_in,
@@ -191,7 +116,8 @@ namespace BLAS
                           double* y,
                           int incy)
   {
-    dgemv(trans_in, n, m, alpha, amat, lda, x, incx, beta, y, incy);
+    const CBLAS_TRANSPOSE trans=(trans_in=='T')? CblasTrans: CblasNoTrans;
+    cblas_dgemv(CblasColMajor,trans, n, m, alpha, amat, lda, x, incx, beta, y, incy);
   }
 
   inline static void gemv(char trans_in,
@@ -206,7 +132,8 @@ namespace BLAS
                           float* y,
                           int incy)
   {
-    sgemv(trans_in, n, m, alpha, amat, lda, x, incx, beta, y, incy);
+    const CBLAS_TRANSPOSE trans=(trans_in=='T')? CblasTrans: CblasNoTrans;
+    cblas_sgemv(CblasColMajor,trans, n, m, alpha, amat, lda, x, incx, beta, y, incy);
   }
 
   inline static void gemv(char trans_in,
@@ -221,7 +148,8 @@ namespace BLAS
                           std::complex<double>* y,
                           int incy)
   {
-    zgemv(trans_in, n, m, alpha, amat, lda, x, incx, beta, y, incy);
+    const CBLAS_TRANSPOSE trans=(trans_in=='T')? CblasConjTrans: CblasNoTrans;
+    cblas_zgemv(CblasColMajor,trans, n, m, MM(&alpha), MM(amat), lda, MM(x), incx, MM(&beta), MM(y), incy);
   }
 
   inline static void gemv(char trans_in,
@@ -236,7 +164,8 @@ namespace BLAS
                           std::complex<float>* y,
                           int incy)
   {
-    cgemv(trans_in, n, m, alpha, amat, lda, x, incx, beta, y, incy);
+    const CBLAS_TRANSPOSE trans=(trans_in=='T')? CblasConjTrans: CblasNoTrans;
+    cblas_cgemv(CblasColMajor,trans, n, m, MM(&alpha), MM(amat), lda, MM(x), incx, MM(&beta), MM(y), incy);
   }
 
   template<typename T>
@@ -244,7 +173,7 @@ namespace BLAS
   {
     constexpr T one_  = 1.0e0;
     constexpr T zero_ = 0.0e0;
-    gemv(NOTRANS, m, n, one_, amat, m, x, INCX, zero_, y, INCY);
+    gemv('N', m, n, one_, amat, m, x, 1, zero_, y, 1);
   }
 
 
@@ -253,8 +182,10 @@ namespace BLAS
   {
     constexpr T one_   = 1.0e0;
     constexpr T zero_  = 0.0e0;
-    gemv(TRANS, m, n, one_, amat, m, x, INCX, zero_, y, INCY);
+    gemv('T', m, n, one_, amat, m, x, 1, zero_, y, 1);
   }
+
+
 
   inline static void gemm(char Atrans,
                           char Btrans,
@@ -270,7 +201,9 @@ namespace BLAS
                           double* restrict C,
                           int ldc)
   {
-    dgemm(Atrans, Btrans, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    const CBLAS_TRANSPOSE tA=(Atrans=='T')? CblasTrans: CblasNoTrans;
+    const CBLAS_TRANSPOSE tB=(Btrans=='T')? CblasTrans: CblasNoTrans;
+    cblas_dgemm(CblasColMajor,tA, tB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
   }
 
   inline static void gemm(char Atrans,
@@ -287,7 +220,9 @@ namespace BLAS
                           float* restrict C,
                           int ldc)
   {
-    sgemm(Atrans, Btrans, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    const CBLAS_TRANSPOSE tA=(Atrans=='T')? CblasTrans: CblasNoTrans;
+    const CBLAS_TRANSPOSE tB=(Btrans=='T')? CblasTrans: CblasNoTrans;
+    cblas_sgemm(CblasColMajor,tA, tB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
   }
 
   inline static void gemm(char Atrans,
@@ -304,7 +239,9 @@ namespace BLAS
                           std::complex<double>* restrict C,
                           int ldc)
   {
-    zgemm(Atrans, Btrans, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    const CBLAS_TRANSPOSE tA=(Atrans=='T')? CblasTrans: CblasNoTrans;
+    const CBLAS_TRANSPOSE tB=(Btrans=='T')? CblasTrans: CblasNoTrans;
+    cblas_zgemm(CblasColMajor,tA, tB, M, N, K, MM(&alpha), MM(A), lda, MM(B), ldb, MM(&beta), MM(C), ldc);
   }
 
   inline static void gemm(char Atrans,
@@ -321,81 +258,25 @@ namespace BLAS
                           std::complex<float>* restrict C,
                           int ldc)
   {
-    cgemm(Atrans, Btrans, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    const CBLAS_TRANSPOSE tA=(Atrans=='T')? CblasTrans: CblasNoTrans;
+    const CBLAS_TRANSPOSE tB=(Btrans=='T')? CblasTrans: CblasNoTrans;
+    cblas_cgemm(CblasColMajor,tA, tB, M, N, K, MM(&alpha), MM(A), lda, MM(B), ldb, MM(&beta), MM(C), ldc);
   }
 
   template<typename T>
   inline static T dot(int n, const T* restrict a, const T* restrict b)
   {
-    T res = T(0);
+    T res = T{};
     for (int i = 0; i < n; ++i)
       res += a[i] * b[i];
     return res;
   }
 
-  template<typename T>
-  inline static std::complex<T> dot(int n, const std::complex<T>* restrict a, const T* restrict b)
-  {
-    std::complex<T> res = T(0);
-    for (int i = 0; i < n; ++i)
-      res += a[i] * b[i];
-    return res;
-  }
-
-  template<typename T>
-  inline static std::complex<T> dot(int n, const std::complex<T>* restrict a, const std::complex<T>* restrict b)
-  {
-    std::complex<T> res = 0.0;
-    for (int i = 0; i < n; ++i)
-      res += a[i] * b[i];
-    return res;
-  }
-
-
-  template<typename T>
-  inline static std::complex<T> dot(int n, const T* restrict a, const std::complex<T>* restrict b)
-  {
-    std::complex<T> res = 0.0;
-    for (int i = 0; i < n; ++i)
-      res += a[i] * b[i];
-    return res;
-  }
 
   template<typename T>
   inline static T dot(int n, const T* restrict a, int incx, const T* restrict b, int incy)
   {
-    T res = T(0);
-    for (int i = 0, ia = 0, ib = 0; i < n; ++i, ia += incx, ib += incy)
-      res += a[ia] * b[ib];
-    return res;
-  }
-
-  template<typename T>
-  inline static std::complex<T> dot(int n, const std::complex<T>* restrict a, int incx, const T* restrict b, int incy)
-  {
-    std::complex<T> res = T(0);
-    for (int i = 0, ia = 0, ib = 0; i < n; ++i, ia += incx, ib += incy)
-      res += a[ia] * b[ib];
-    return res;
-  }
-
-  template<typename T>
-  inline static std::complex<T> dot(int n, const T* restrict a, int incx, const std::complex<T>* restrict b, int incy)
-  {
-    std::complex<T> res = T(0);
-    for (int i = 0, ia = 0, ib = 0; i < n; ++i, ia += incx, ib += incy)
-      res += a[ia] * b[ib];
-    return res;
-  }
-
-  template<typename T>
-  inline static std::complex<T> dot(int n,
-                                    const std::complex<T>* restrict a,
-                                    int incx,
-                                    const std::complex<T>* restrict b,
-                                    int incy)
-  {
-    std::complex<T> res = T(0);
+    T res{};
     for (int i = 0, ia = 0, ib = 0; i < n; ++i, ia += incx, ib += incy)
       res += a[ia] * b[ib];
     return res;
@@ -468,7 +349,7 @@ namespace BLAS
                          double* a,
                          int lda)
   {
-    dger(&m, &n, &alpha, x, &incx, y, &incy, a, &lda);
+    cblas_dger(CblasColMajor, m, n, alpha, x, incx, y,incy, a, lda);
   }
 
   inline static void ger(int m,
@@ -481,7 +362,7 @@ namespace BLAS
                          float* a,
                          int lda)
   {
-    sger(&m, &n, &alpha, x, &incx, y, &incy, a, &lda);
+    cblas_sger(CblasColMajor, m, n, alpha, x, incx, y, incy, a, lda);
   }
 
   inline static void ger(int m,
@@ -494,7 +375,7 @@ namespace BLAS
                          std::complex<double>* a,
                          int lda)
   {
-    zgeru(&m, &n, &alpha, x, &incx, y, &incy, a, &lda);
+    cblas_zgeru(CblasColMajor, m, n, MM(&alpha), MM(x), incx, MM(y), incy, MM(a), lda);
   }
 
   inline static void ger(int m,
@@ -507,38 +388,38 @@ namespace BLAS
                          std::complex<float>* a,
                          int lda)
   {
-    cgeru(&m, &n, &alpha, x, &incx, y, &incy, a, &lda);
+    cblas_cgeru(CblasColMajor, m, n, MM(&alpha), MM(x), incx, MM(y), incy, MM(a), lda);
   }
 };
 
 struct LAPACK
 {
-  inline static void heev(char& jobz,
-                          char& uplo,
-                          int& n,
+  inline static void heev(char jobz,
+                          char uplo,
+                          int n,
                           std::complex<float>* a,
-                          int& lda,
+                          int lda,
                           float* w,
                           std::complex<float>* work,
-                          int& lwork,
+                          int lwork,
                           float* rwork,
                           int& info)
   {
-    cheev(jobz, uplo, n, a, lda, w, work, lwork, rwork, info);
+    info=LAPACKE_cheev_work(CblasColMajor,jobz, uplo, n, MM(a), lda, w, MM(work), lwork, rwork);
   }
 
-  inline static void heev(char& jobz,
-                          char& uplo,
-                          int& n,
+  inline static void heev(char jobz,
+                          char uplo,
+                          int n,
                           std::complex<double>* a,
-                          int& lda,
+                          int lda,
                           double* w,
                           std::complex<double>* work,
-                          int& lwork,
+                          int lwork,
                           double* rwork,
                           int& info)
   {
-    zheev(jobz, uplo, n, a, lda, w, work, lwork, rwork, info);
+    info=LAPACKE_zheev_work(CblasColMajor,jobz, uplo, n, MM(a), lda, w, MM(work), lwork, rwork);
   }
 
   inline static void gesvd(const char& jobu,
@@ -556,7 +437,7 @@ struct LAPACK
                            const int& lwork,
                            int& info)
   {
-    sgesvd(jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, info);
+    info = LAPACKE_sgesvd_work(CblasColMajor,jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork);
   }
 
   inline static void gesvd(const char& jobu,
@@ -574,7 +455,7 @@ struct LAPACK
                            const int& lwork,
                            int& info)
   {
-    dgesvd(jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, info);
+    info = LAPACKE_dgesvd_work(CblasColMajor,jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork);
   }
 
   inline static void gesvd(const char& jobu,
@@ -593,7 +474,7 @@ struct LAPACK
                            float* rwork,
                            int& info)
   {
-    cgesvd(jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork, info);
+    info=LAPACKE_cgesvd_work(CblasColMajor,jobu, jobvt, m, n, MM(a), lda, s, MM(u), ldu, MM(vt), ldvt, MM(work), lwork, rwork);
   }
 
   inline static void gesvd(const char& jobu,
@@ -612,7 +493,7 @@ struct LAPACK
                            double* rwork,
                            int& info)
   {
-    zgesvd(jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork, info);
+    info=LAPACKE_zgesvd_work(CblasColMajor,jobu, jobvt, m, n, MM(a), lda, s, MM(u), ldu, MM(vt), ldvt, MM(work), lwork, rwork);
   }
 
   inline static void geev(char* jobvl,
@@ -630,7 +511,7 @@ struct LAPACK
                           int* lwork,
                           int* info)
   {
-    dgeev(jobvl, jobvr, n, a, lda, alphar, alphai, vl, ldvl, vr, ldvr, work, lwork, info);
+    *info=LAPACKE_dgeev_work(CblasColMajor,*jobvl, *jobvr, *n, a, *lda, alphar, alphai, vl, *ldvl, vr, *ldvr, work, *lwork);
   }
 
   inline static void geev(char* jobvl,
@@ -648,7 +529,7 @@ struct LAPACK
                           int* lwork,
                           int* info)
   {
-    sgeev(jobvl, jobvr, n, a, lda, alphar, alphai, vl, ldvl, vr, ldvr, work, lwork, info);
+    *info=LAPACKE_sgeev_work(CblasColMajor,*jobvl, *jobvr, *n, a, *lda, alphar, alphai, vl, *ldvl, vr, *ldvr, work, *lwork);
   }
 
   inline static void ggev(char* jobvl,
@@ -669,7 +550,7 @@ struct LAPACK
                           int* lwork,
                           int* info)
   {
-    dggev(jobvl, jobvr, n, a, lda, b, ldb, alphar, alphai, beta, vl, ldvl, vr, ldvr, work, lwork, info);
+    *info=LAPACKE_dggev_work(CblasColMajor,*jobvl, *jobvr, *n, a, *lda, b, *ldb, alphar, alphai, beta, vl, *ldvl, vr, *ldvr, work, *lwork);
   }
 
   inline static void ggev(char* jobvl,
@@ -690,7 +571,7 @@ struct LAPACK
                           int* lwork,
                           int* info)
   {
-    sggev(jobvl, jobvr, n, a, lda, b, ldb, alphar, alphai, beta, vl, ldvl, vr, ldvr, work, lwork, info);
+    *info=LAPACKE_sggev_work(CblasColMajor,*jobvl, *jobvr, *n, a, *lda, b, *ldb, alphar, alphai, beta, vl, *ldvl, vr, *ldvr, work, *lwork);
   }
 
   inline static void hevr(char& JOBZ,
@@ -704,23 +585,23 @@ struct LAPACK
                           int& IL,
                           int& IU,
                           float& ABSTOL,
-                          int& M,
+                          lapack_int& M,
                           float* W,
                           float* Z,
                           int& LDZ,
-                          int* ISUPPZ,
+                          lapack_int* ISUPPZ,
                           float* WORK,
                           int& LWORK,
                           float* RWORK,
                           int& LRWORK,
-                          int* IWORK,
+                          lapack_int* IWORK,
                           int& LIWORK,
                           int& INFO)
   {
     if (WORK)
       WORK[0] = 0;
-    ssyevr(JOBZ, RANGE, UPLO, N, A, LDA, VL, VU, IL, IU, ABSTOL, M, W, Z, LDZ, ISUPPZ, RWORK, LRWORK, IWORK, LIWORK,
-           INFO);
+    INFO=LAPACKE_ssyevr_work(CblasColMajor,
+        JOBZ, RANGE, UPLO, N, A, LDA, VL, VU, IL, IU, ABSTOL, &M, W, Z, LDZ, ISUPPZ, RWORK, LRWORK, IWORK, LIWORK);
   }
 
   inline static void hevr(char& JOBZ,
@@ -734,23 +615,23 @@ struct LAPACK
                           int& IL,
                           int& IU,
                           double& ABSTOL,
-                          int& M,
+                          lapack_int& M,
                           double* W,
                           double* Z,
                           int& LDZ,
-                          int* ISUPPZ,
+                          lapack_int* ISUPPZ,
                           double* WORK,
                           int& LWORK,
                           double* RWORK,
                           int& LRWORK,
-                          int* IWORK,
+                          lapack_int* IWORK,
                           int& LIWORK,
                           int& INFO)
   {
     if (WORK)
       WORK[0] = 0;
-    dsyevr(JOBZ, RANGE, UPLO, N, A, LDA, VL, VU, IL, IU, ABSTOL, M, W, Z, LDZ, ISUPPZ, RWORK, LRWORK, IWORK, LIWORK,
-           INFO);
+    INFO=LAPACKE_dsyevr_work(CblasColMajor,
+        JOBZ, RANGE, UPLO, N, A, LDA, VL, VU, IL, IU, ABSTOL, &M, W, Z, LDZ, ISUPPZ, RWORK, LRWORK, IWORK, LIWORK);
   }
 
   inline static void hevr(char& JOBZ,
@@ -764,21 +645,22 @@ struct LAPACK
                           int& IL,
                           int& IU,
                           float& ABSTOL,
-                          int& M,
+                          lapack_int& M,
                           float* W,
                           std::complex<float>* Z,
                           int& LDZ,
-                          int* ISUPPZ,
+                          lapack_int* ISUPPZ,
                           std::complex<float>* WORK,
                           int& LWORK,
                           float* RWORK,
                           int& LRWORK,
-                          int* IWORK,
+                          lapack_int* IWORK,
                           int& LIWORK,
                           int& INFO)
   {
-    cheevr(JOBZ, RANGE, UPLO, N, A, LDA, VL, VU, IL, IU, ABSTOL, M, W, Z, LDZ, ISUPPZ, WORK, LWORK, RWORK, LRWORK,
-           IWORK, LIWORK, INFO);
+    INFO=LAPACKE_cheevr_work(CblasColMajor,
+        JOBZ, RANGE, UPLO, N, MM(A), LDA, VL, VU, IL, IU, ABSTOL, &M, W, MM(Z), LDZ, ISUPPZ, MM(WORK), LWORK, RWORK, LRWORK,
+           IWORK, LIWORK);
   }
 
   inline static void hevr(char& JOBZ,
@@ -792,114 +674,98 @@ struct LAPACK
                           int& IL,
                           int& IU,
                           double& ABSTOL,
-                          int& M,
+                          lapack_int& M,
                           double* W,
                           std::complex<double>* Z,
                           int& LDZ,
-                          int* ISUPPZ,
+                          lapack_int* ISUPPZ,
                           std::complex<double>* WORK,
                           int& LWORK,
                           double* RWORK,
                           int& LRWORK,
-                          int* IWORK,
+                          lapack_int* IWORK,
                           int& LIWORK,
                           int& INFO)
   {
-    zheevr(JOBZ, RANGE, UPLO, N, A, LDA, VL, VU, IL, IU, ABSTOL, M, W, Z, LDZ, ISUPPZ, WORK, LWORK, RWORK, LRWORK,
-           IWORK, LIWORK, INFO);
+    INFO=LAPACKE_zheevr_work(CblasColMajor,
+        JOBZ, RANGE, UPLO, N, MM(A), LDA, VL, VU, IL, IU, ABSTOL, &M, W, MM(Z), LDZ, ISUPPZ, MM(WORK), LWORK, RWORK, LRWORK,
+           IWORK, LIWORK);
   }
 
-  static lapack_int getrf(const int& n, const int& m, double* a, const int& n0, int* piv)
+  static lapack_int  getrf(const int n, const int m, double* a, const int n0, lapack_int* piv)
   {
-    lapack_int status;
-    dgetrf(n, m, a, n0, piv, status);
-    return status;
+    return LAPACKE_dgetrf(CblasColMajor, n, m, a, n0, piv);
   }
 
-  static lapack_int getrf(const int& n, const int& m, float* a, const int& n0, int* piv)
+  static lapack_int getrf(const int n, const int m, float* a, const int n0, lapack_int* piv)
   {
-    lapack_int status;
-    sgetrf(n, m, a, n0, piv, status);
-    return status;
+    return LAPACKE_sgetrf(CblasColMajor, n, m, a, n0, piv);
   }
 
-  static lapack_int getrf(const int& n, const int& m, std::complex<double>* a, const int& n0, int* piv)
+  static lapack_int  getrf(const int n, const int m, std::complex<double>* a, const int n0, lapack_int* piv)
   {
-    lapack_int status;
-    zgetrf(n, m, a, n0, piv, status);
-    return status;
+    return LAPACKE_zgetrf(CblasColMajor, n, m, MM(a), n0, piv);
   }
 
-  static lapack_int getrf(const int& n, const int& m, std::complex<float>* a, const int& n0, int* piv)
+  static lapack_int getrf(const int n, const int m, std::complex<float>* a, const int n0, lapack_int* piv)
   {
-    lapack_int status;
-    cgetrf(n, m, a, n0, piv, status);
-    return status;
+    return LAPACKE_cgetrf(CblasColMajor, n, m, MM(a), n0, piv);
   }
 
   static lapack_int getri(int n,
                     float* restrict a,
                     int n0,
-                    int const* restrict piv,
+                    lapack_int const* restrict piv,
                     float* restrict work,
-                    int const& n1)
+                    int const n1)
   {
-    lapack_int status;
-    sgetri(n, a, n0, piv, work, n1, status);
-    return status;
+    return LAPACKE_sgetri_work(CblasColMajor, n, a, n0, piv, work, n1);
   }
 
-  static lapack_int getri(int n,
+  static lapack_int  getri(int n,
                     double* restrict a,
                     int n0,
-                    int const* restrict piv,
+                    lapack_int const* restrict piv,
                     double* restrict work,
-                    int const& n1)
+                    int const n1)
   {
-    lapack_int status;
-    dgetri(n, a, n0, piv, work, n1, status);
-    return status;
+    return LAPACKE_dgetri_work(CblasColMajor, n, a, n0, piv, work, n1);
   }
 
-  static lapack_int getri(int n,
+  static lapack_int  getri(int n,
                     std::complex<float>* restrict a,
                     int n0,
-                    int const* restrict piv,
+                    lapack_int const* restrict piv,
                     std::complex<float>* restrict work,
-                    int const& n1)
+                    int const n1)
   {
-    lapack_int status;
-    cgetri(n, a, n0, piv, work, n1, status);
-    return status;
+    return LAPACKE_cgetri_work(CblasColMajor, n, MM(a), n0, piv, MM(work), n1);
   }
 
   static lapack_int getri(int n,
                     std::complex<double>* restrict a,
                     int n0,
-                    int const* restrict piv,
+                    lapack_int const* restrict piv,
                     std::complex<double>* restrict work,
-                    int const& n1)
+                    int const n1)
   {
-    lapack_int status;
-    zgetri(n, a, n0, piv, work, n1, status);
-    return status;
+    return LAPACKE_zgetri_work(CblasColMajor, n, MM(a), n0, piv, MM(work), n1);
   }
 
-  static void geqrf(int M,
+  static lapack_int  geqrf(int M,
                     int N,
                     std::complex<double>* A,
                     const int LDA,
                     std::complex<double>* TAU,
                     std::complex<double>* WORK,
-                    int LWORK,
-                    int& INFO)
+                    int LWORK)
   {
-    zgeqrf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    return LAPACKE_zgeqrf_work(CblasColMajor, M, N, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void geqrf(int M, int N, double* A, const int LDA, double* TAU, double* WORK, int LWORK, int& INFO)
   {
-    dgeqrf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_dgeqrf_work(CblasColMajor, M, N, A, LDA, TAU, WORK, LWORK);
   }
 
   static void geqrf(int M,
@@ -911,12 +777,12 @@ struct LAPACK
                     int LWORK,
                     int& INFO)
   {
-    cgeqrf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_cgeqrf_work(CblasColMajor, M, N, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void geqrf(int M, int N, float* A, const int LDA, float* TAU, float* WORK, int LWORK, int& INFO)
   {
-    sgeqrf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_sgeqrf_work(CblasColMajor, M, N, A, LDA, TAU, WORK, LWORK);
   }
 
   static void gelqf(int M,
@@ -928,12 +794,12 @@ struct LAPACK
                     int LWORK,
                     int& INFO)
   {
-    zgelqf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_zgelqf_work(CblasColMajor,M, N, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void gelqf(int M, int N, double* A, const int LDA, double* TAU, double* WORK, int LWORK, int& INFO)
   {
-    dgelqf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_dgelqf_work(CblasColMajor,M, N, A, LDA, TAU, WORK, LWORK);
   }
 
   static void gelqf(int M,
@@ -945,12 +811,12 @@ struct LAPACK
                     int LWORK,
                     int& INFO)
   {
-    cgelqf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_cgelqf_work(CblasColMajor,M, N, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void gelqf(int M, int N, float* A, const int LDA, float* TAU, float* WORK, int LWORK, int& INFO)
   {
-    sgelqf(M, N, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_sgelqf_work(CblasColMajor,M, N, A, LDA, TAU, WORK, LWORK);
   }
 
   static void gqr(int M,
@@ -963,12 +829,12 @@ struct LAPACK
                   int LWORK,
                   int& INFO)
   {
-    zungqr(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_zungqr_work(CblasColMajor, M, N, K, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void gqr(int M, int N, int K, double* A, const int LDA, double* TAU, double* WORK, int LWORK, int& INFO)
   {
-    dorgqr(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_dorgqr_work(CblasColMajor, M, N, K, A, LDA, TAU, WORK, LWORK);
   }
 
   static void gqr(int M,
@@ -981,12 +847,12 @@ struct LAPACK
                   int LWORK,
                   int& INFO)
   {
-    cungqr(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_cungqr_work(CblasColMajor, M, N, K, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void gqr(int M, int N, int K, float* A, const int LDA, float* TAU, float* WORK, int LWORK, int& INFO)
   {
-    sorgqr(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_sorgqr_work(CblasColMajor, M, N, K, A, LDA, TAU, WORK, LWORK);
   }
 
   static void glq(int M,
@@ -999,12 +865,12 @@ struct LAPACK
                   int LWORK,
                   int& INFO)
   {
-    zunglq(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_zunglq_work(CblasColMajor, M, N, K, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void glq(int M, int N, int K, double* A, const int LDA, double* TAU, double* WORK, int LWORK, int& INFO)
   {
-    dorglq(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_dorglq_work(CblasColMajor, M, N, K, A, LDA, TAU, WORK, LWORK);
   }
 
   static void glq(int M,
@@ -1017,34 +883,34 @@ struct LAPACK
                   int LWORK,
                   int& INFO)
   {
-    cunglq(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_cunglq_work(CblasColMajor, M, N, K, MM(A), LDA, MM(TAU), MM(WORK), LWORK);
   }
 
   static void glq(int M, int N, int K, float* A, const int LDA, float* TAU, float* WORK, int const LWORK, int& INFO)
   {
-    sorglq(M, N, K, A, LDA, TAU, WORK, LWORK, INFO);
+    INFO=LAPACKE_sorglq_work(CblasColMajor, M, N, K, A, LDA, TAU, WORK, LWORK);
   }
 
   static void potrf(const char& UPLO, const int& N, float* A, const int& LDA, int& INFO)
   {
-    spotrf(UPLO, N, A, LDA, INFO);
+    INFO=LAPACKE_spotrf(CblasColMajor,UPLO, N, A, LDA);
   }
 
   static void potrf(const char& UPLO, const int& N, double* A, const int& LDA, int& INFO)
   {
-    dpotrf(UPLO, N, A, LDA, INFO);
+    INFO=LAPACKE_dpotrf(CblasColMajor,UPLO, N, A, LDA);
   }
 
   static void potrf(const char& UPLO, const int& N, std::complex<float>* A, const int& LDA, int& INFO)
   {
-    cpotrf(UPLO, N, A, LDA, INFO);
+    INFO=LAPACKE_cpotrf(CblasColMajor,UPLO, N, MM(A), LDA);
   }
 
   static void potrf(const char& UPLO, const int& N, std::complex<double>* A, const int& LDA, int& INFO)
   {
-    zpotrf(UPLO, N, A, LDA, INFO);
+    INFO=LAPACKE_zpotrf(CblasColMajor,UPLO, N, MM(A), LDA);
   }
 };
 
-#endif
+
 #endif // OHMMS_BLAS_H

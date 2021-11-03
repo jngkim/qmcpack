@@ -463,7 +463,7 @@ private:
   ValueMatrix_t dotProducts;
 
   Vector<ValueType> WorkSpace;
-  Vector<IndexType> Pivot;
+  Vector<lapack_int> Pivot;
 
   ValueType* FirstAddressOfGrads;
   ValueType* LastAddressOfGrads;

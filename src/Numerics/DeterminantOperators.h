@@ -32,77 +32,18 @@
 namespace qmcplusplus
 {
 /** LU factorization of double */
-inline void LUFactorization(int n, int m, double* restrict a, int n0, int* restrict piv)
+template<typename T>
+inline void LUFactorization(int n, int m, T* restrict a, int n0, lapack_int* restrict piv)
 {
-  int status;
-  dgetrf(n, m, a, n0, piv, status);
-}
-
-/** LU factorization of float */
-inline void LUFactorization(int n, int m, float* restrict a, const int& n0, int* restrict piv)
-{
-  int status;
-  sgetrf(n, m, a, n0, piv, status);
-}
-
-/** LU factorization of std::complex<double> */
-inline void LUFactorization(int n, int m, std::complex<double>* restrict a, int n0, int* restrict piv)
-{
-  int status;
-  zgetrf(n, m, a, n0, piv, status);
-}
-
-/** LU factorization of complex<float> */
-inline void LUFactorization(int n, int m, std::complex<float>* restrict a, int n0, int* restrict piv)
-{
-  int status;
-  cgetrf(n, m, a, n0, piv, status);
+  auto status= LAPACK::getrf(n, m, a, n0, piv);
 }
 
 /** Inversion of a double matrix after LU factorization*/
-inline void InvertLU(int n, double* restrict a, int n0, int* restrict piv, double* restrict work, int n1)
+template<typename T>
+inline void InvertLU(int n, T* restrict a, int n0, lapack_int* restrict piv, T* restrict work, int n1)
 {
-  int status;
-  dgetri(n, a, n0, piv, work, n1, status);
+  auto status=LAPACK::getri(n, a, n0, piv, work, n1);
 }
-
-/** Inversion of a float matrix after LU factorization*/
-inline void InvertLU(const int& n,
-                     float* restrict a,
-                     const int& n0,
-                     int* restrict piv,
-                     float* restrict work,
-                     const int& n1)
-{
-  int status;
-  sgetri(n, a, n0, piv, work, n1, status);
-}
-
-/** Inversion of a std::complex<double> matrix after LU factorization*/
-inline void InvertLU(int n,
-                     std::complex<double>* restrict a,
-                     int n0,
-                     int* restrict piv,
-                     std::complex<double>* restrict work,
-                     int n1)
-{
-  int status;
-  zgetri(n, a, n0, piv, work, n1, status);
-}
-
-/** Inversion of a complex<float> matrix after LU factorization*/
-inline void InvertLU(int n,
-                     std::complex<float>* restrict a,
-                     int n0,
-                     int* restrict piv,
-                     std::complex<float>* restrict work,
-                     int n1)
-{
-  int status;
-  cgetri(n, a, n0, piv, work, n1, status);
-}
-
-/** @}*/
 
 /** inverse a matrix
  * @param x starting address of an n-by-m matrix
@@ -113,7 +54,7 @@ inline void InvertLU(int n,
  * @return determinant
  */
 template<class T>
-inline T Invert(T* restrict x, int n, int m, T* restrict work, int* restrict pivot)
+inline T Invert(T* restrict x, int n, int m, T* restrict work, lapack_int* restrict pivot)
 {
   T detvalue(1.0);
   LUFactorization(n, m, x, n, pivot);
@@ -136,7 +77,7 @@ inline T Invert(T* restrict x, int n, int m, T* restrict work, int* restrict piv
  * @return determinant
  */
 template<class T>
-inline T Determinant(T* restrict x, int n, int m, int* restrict pivot)
+inline T Determinant(T* restrict x, int n, int m, lapack_int* restrict pivot)
 {
   T detvalue(1.0);
   LUFactorization(n, m, x, n, pivot);
@@ -161,13 +102,13 @@ inline T Determinant(T* restrict x, int n, int m, int* restrict pivot)
 template<class T>
 inline T Invert(T* restrict x, int n, int m)
 {
-  std::vector<int> pivot(n);
+  std::vector<lapack_int> pivot(n);
   std::vector<T> work(n);
   return Invert(x, n, m, work.data(), pivot.data());
 }
 
 template<class T, class T1>
-inline void InvertWithLog(T* restrict x, int n, int m, T* restrict work, int* restrict pivot, std::complex<T1>& logdet)
+inline void InvertWithLog(T* restrict x, int n, int m, T* restrict work, lapack_int* restrict pivot, std::complex<T1>& logdet)
 {
   LUFactorization(n, m, x, n, pivot);
   logdet = std::complex<T1>();
@@ -186,7 +127,7 @@ inline typename MatrixA::value_type invert_matrix(MatrixA& M, bool getdet = true
 {
   typedef typename MatrixA::value_type value_type;
   const int n = M.rows();
-  std::vector<int> pivot(n);
+  std::vector<lapack_int> pivot(n);
   std::vector<value_type> work(n);
   LUFactorization(n, n, M.data(), n, pivot.data());
   value_type det0 = 1.0;
