@@ -10,8 +10,8 @@
 //////////////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef QMCPLUSPLUS_OMPBLAS_DPCPP_INTEROP_H
-#define QMCPLUSPLUS_OMPBLAS_DPCPP_INTEROP_H
+#ifndef QMCPLUSPLUS_SYCL_ONEAPI_BLAS_H
+#define QMCPLUSPLUS_SYCL_ONEAPI_BLAS_H
 
 #include <complex>
 #include <CL/sycl.hpp>
@@ -20,8 +20,6 @@
 
 namespace qmcplusplus
 {
-
-//extern sycl::queue* get_default_queue();
 
 /** Implement selected batched and non-batched BLAS2 calls using OpenMP offload for different data types S/C/D/Z
  * 1) column major like the BLAS fortran API
