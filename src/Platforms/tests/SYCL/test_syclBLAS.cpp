@@ -201,4 +201,154 @@ TEST_CASE("OmpSYCL gemv", "[SYCL]")
   test_gemv_batched<std::complex<double>>(M, N, 'T', batch_count);
 #endif
 }
+
+template<typename T, typename Alloc>
+void test_ger(const int M, const int N)
+{
+
+  using vec_t = Vector<T, Alloc>;
+  using mat_t = Matrix<T, Alloc>;
+
+  sycl::queue *handle=get_default_queue();
+
+  vec_t X(N);        // Input vector
+  vec_t Y(M);        // Input vector
+  mat_t C(M, N); // output matrix X^Y
+  mat_t D(M, N); // output matrix
+
+  // Fill data
+  for (int i = 0; i < N; i++)
+    X[i] = i;
+  for (int i = 0; i < M; i++)
+    Y[i] = M-i;
+
+  for (int j = 0; j < M; j++)
+    for (int i = 0; i < N; i++)
+      C[j][i] = D[j][i]=0;
+
+  X.updateTo();
+  Y.updateTo();
+  C.updateTo();
+
+  T alpha(1);
+  syclBLAS::ger(*handle, M, M, alpha, X.device_data(), 1, Y.device_data(), 1, C.device_data(),M).wait();
+
+  BLAS::ger(M, M, alpha, X.data(), 1, Y.data(), 1, D.data(),M);
+
+  C.updateFrom();
+
+  for (int index = 0; index < M; index++)
+    for (int j = 0; j < N; j++)
+      CHECK(C[index][j] == D[index][j]);
+}
+
+template<typename T>
+void test_ger_batched(const int M, const int N, const int batch_count)
+{
+  using vec_t = Vector<T, OMPallocator<T>>;
+  using mat_t = Matrix<T, OMPallocator<T>>;
+
+  sycl::queue *handle=get_default_queue();
+
+  // Create input vector
+  std::vector<vec_t> As;
+  Vector<const T*, OMPallocator<const T*>> Aptrs;
+
+  // Create input vector
+  std::vector<vec_t> Bs;
+  Vector<const T*, OMPallocator<const T*>> Bptrs;
+
+  // Create output matrix (syclBLAS)
+  std::vector<mat_t> Cs;
+  Vector<T*, OMPallocator<T*>> Cptrs;
+
+  // Create output vector (BLAS)
+  std::vector<mat_t> Ds;
+  Vector<T*, OMPallocator<T*>> Dptrs;
+
+  // Resize pointer vectors
+  Aptrs.resize(batch_count);
+  Bptrs.resize(batch_count);
+  Cptrs.resize(batch_count);
+  Dptrs.resize(batch_count);
+
+  // Resize data vectors
+  As.resize(batch_count);
+  Bs.resize(batch_count);
+  Cs.resize(batch_count);
+  Ds.resize(batch_count);
+
+  // Fill data
+  for (int batch = 0; batch < batch_count; batch++)
+  {
+
+    As[batch].resize(N);
+    Aptrs[batch] = As[batch].device_data();
+
+    Bs[batch].resize(M);
+    Bptrs[batch] = Bs[batch].device_data();
+
+    Cs[batch].resize(M,N);
+    Cptrs[batch] = Cs[batch].device_data();
+
+    Ds[batch].resize(M,N);
+    Dptrs[batch] = Ds[batch].data();
+
+    for (int i = 0; i < M; i++)
+      As[batch][i] = i;
+    for (int i = 0; i < N; i++)
+      Bs[batch][i] = N-i;
+
+    for (int j = 0; j < M; j++)
+      for (int i = 0; i < N; i++)
+        Cs[batch][j][i] = Ds[batch][j][i]=0;
+
+    As[batch].updateTo();
+    Bs[batch].updateTo();
+    Cs[batch].updateTo();
+  }
+
+  Aptrs.updateTo();
+  Bptrs.updateTo();
+  Cptrs.updateTo();
+
+  vec_t alpha(batch_count);
+  for(int i=0; i<batch_count; i++)
+    alpha[i]=1;
+  alpha.updateTo();
+
+  syclBLAS::ger_batched(*handle, M, N,
+      alpha.device_data(), Aptrs.device_data(), 1, Bptrs.device_data(), 1, Cptrs.device_data(), N, batch_count).wait();
+
+  for (int batch = 0; batch < batch_count; batch++)
+  {
+    Cs[batch].updateFrom();
+
+    BLAS::ger(M, M, alpha[batch], As[batch].data(), 1, Bs[batch].data(), 1, Ds[batch].data(),M);
+
+    for (int j = 0; j < M; j++)
+      for (int i = 0; i < N; i++)
+        CHECK(Cs[batch][j][i] == Ds[batch][j][i]);
+  }
+}
+
+TEST_CASE("OmpSYCL ger", "[SYCL]")
+{
+  const int M           = 17;
+  const int N           = 17;
+  const int batch_count = 23;
+
+  // Non-batched test
+  std::cout << "Testing ger" << std::endl;
+  test_ger<float,OMPallocator<float>>(M, N);
+  test_ger<double,OMPallocator<double>>(M, N);
+  test_ger<std::complex<float>, OMPallocator<std::complex<float>>>(N, M);
+  test_ger<std::complex<double>,OMPallocator<std::complex<double>>>(N, M);
+
+  std::cout << "Testing ger_batched" << std::endl;
+  test_ger_batched<float>(M, N,batch_count);
+  test_ger_batched<double>(M, N,batch_count);
+  test_ger_batched<std::complex<float>>(M, N,batch_count);
+  test_ger_batched<std::complex<double>>(M, N,batch_count);
+}
 } // namespace qmcplusplus
