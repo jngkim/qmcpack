@@ -15,9 +15,9 @@
 #include <vector>
 #include <iostream>
 #include "OMPTarget/OMPallocator.hpp"
-#include "SYCL/SYCLDeviceManager.hpp"
+#include "SYCL/SYCLruntime.hpp"
+//#include "SYCL/SYCLallocator.hpp"
 #include "SYCL/syclBLAS.hpp"
-#include "SYCL/SYCLallocator.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
 #include <CPU/BLAS.hpp>
