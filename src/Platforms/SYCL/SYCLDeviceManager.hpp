@@ -11,11 +11,11 @@
 #ifndef QMCPLUSPLUS_SYCL_DEVICE_MANAGER_H
 #define QMCPLUSPLUS_SYCL_DEVICE_MANAGER_H
 #include <vector>
+#include <level_zero/ze_api.h>
 #include <CL/sycl.hpp>
-#include <mpi.h>
 namespace qmcplusplus
 {
-  sycl::queue* get_default_queue(int ip = -1);
+  sycl::queue* get_default_queue();
 
   struct syclDeviceInfo {
     sycl::context sycl_context;

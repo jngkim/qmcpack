@@ -24,12 +24,12 @@
 #include <CL/sycl.hpp>
 #include "config.h"
 #include "allocator_traits.hpp"
-//#include "SYCL/SYCLDeviceManager.hpp"
+#include "SYCLDeviceManager.hpp"
 
 namespace qmcplusplus
 {
 
-extern sycl::queue* get_default_queue();
+//extern sycl::queue* get_default_queue();
 
 /** allocator for SYCL unified memory
  * @tparam T data type
@@ -42,7 +42,9 @@ struct SYCLUSMAllocator
   typedef size_t size_type;
   typedef T* pointer;
   typedef const T* const_pointer;
-  sycl::queue* m_queue;
+  sycl::queue* m_queue=nullptr;
+  // pointee is on device.
+  T* device_ptr_ = nullptr;
 
   SYCLUSMAllocator():m_queue{get_default_queue()} 
   {
@@ -61,38 +63,22 @@ struct SYCLUSMAllocator
   T* allocate(std::size_t n)
   {
     //return sycl::aligned_alloc<T>(QMC_SIMD_ALIGNMENT,n,m_queue.get_device(), m_queue.get_context(),AllocKind);
-    return sycl::malloc<T>(n,m_queue->get_device(), m_queue->get_context(),AllocKind);
+    if(m_queue == nullptr) m_queue=get_default_queue();
+    device_ptr_=sycl::malloc<T>(n,m_queue->get_device(), m_queue->get_context(),AllocKind);
+    return device_ptr_;
   }
 
   void deallocate(T* p, std::size_t)
   {
-    sycl::free(p, m_queue->get_context());
+    if(p == device_ptr_)
+      sycl::free(p, m_queue->get_context());
+    device_ptr_=nullptr;
   }
+
+  T* get_device_ptr() { return device_ptr_; }
+  const T* get_device_ptr() const { return device_ptr_; }
+
 };
-
-template<class T1, class T2, sycl::usm::alloc AK1, sycl::usm::alloc AK2>
-bool operator==(const SYCLUSMAllocator<T1,AK2>&, const SYCLUSMAllocator<T2,AK2>&)
-{
-  return false;
-}
-
-template<class T1, class T2, sycl::usm::alloc AK1, sycl::usm::alloc AK2>
-bool operator!=(const SYCLUSMAllocator<T1,AK2>&, const SYCLUSMAllocator<T2,AK2>&)
-{
-  return true;
-}
-
-template<class T1, class T2, sycl::usm::alloc AK>
-bool operator==(const SYCLUSMAllocator<T1,AK>&, const SYCLUSMAllocator<T2,AK>&)
-{
-  return true;
-}
-
-template<class T1, class T2, sycl::usm::alloc AK>
-bool operator!=(const SYCLUSMAllocator<T1,AK>&, const SYCLUSMAllocator<T2,AK>&)
-{
-  return false;
-}
 
 template<typename T>
 using SYCLSharedAllocator = SYCLUSMAllocator<T,sycl::usm::alloc::shared>;
@@ -103,35 +89,77 @@ using SYCLHostAllocator = SYCLUSMAllocator<T,sycl::usm::alloc::host>;
 template<typename T>
 using SYCLDeviceAllocator = SYCLUSMAllocator<T,sycl::usm::alloc::device>;
 
-template<typename T>
-struct allocator_traits<SYCLHostAllocator<T>>
-{
-  static const bool is_host_accessible = true;
-  static const bool is_dual_space = false;
-  static void fill_n(T* ptr, size_t n, const T& value) { std::fill_n(ptr,n,value);}
-};
 
-template<typename T>
-struct allocator_traits<SYCLSharedAllocator<T>>
+/** host/shared traits **/
+template<typename T, sycl::usm::alloc AllocKind>
+struct qmc_allocator_traits<SYCLUSMAllocator<T,AllocKind>>
 {
   static const bool is_host_accessible = true;
-  static const bool is_dual_space = true;
-  static void fill_n(T* ptr, size_t n, const T& value) { 
-    sycl::queue *queue=get_default_queue();
-    queue->fill(ptr,value,n).wait();
+  static const bool is_dual_space      = true;
+
+  static void fill_n(T* ptr, size_t n, const T& value)
+  {
+    std::fill_n(ptr, n, value);
+  }
+
+  static void attachReference(const SYCLUSMAllocator<T,AllocKind>& from,
+                              SYCLUSMAllocator<T,AllocKind>& to,
+                              const T* from_data,
+                              T* ref)
+  {
+    std::ptrdiff_t ptr_offset = ref - from_data;
+    to.attachReference(from, ptr_offset);
+  }
+
+  static void updateTo(SYCLSharedAllocator<T>& alloc, T* host_ptr, size_t n)
+  {
+    std::cout << "Do nothing with updateTo" << std::endl;
+  }
+
+  static void updateFrom(SYCLSharedAllocator<T>& alloc, T* host_ptr, size_t n)
+  {
+    std::cout << "Do nothing with updateFrom" << std::endl;
+  }
+
+  // Not very optimized device side copy.  Only used for testing.
+  static void deviceSideCopyN(SYCLSharedAllocator<T>& alloc, size_t to, size_t n, size_t from)
+  {
   }
 };
 
+/** device traits **/
 template<typename T>
-struct allocator_traits<SYCLDeviceAllocator<T>>
+struct qmc_allocator_traits<SYCLDeviceAllocator<T>>
 {
-  static const bool is_host_accessible =false;
-  static const bool is_dual_space = false;
-  static void fill_n(T* ptr, size_t n, const T& value) { 
-    sycl::queue *queue=get_default_queue();
-    queue->fill(ptr,value,n).wait();
+  static const bool is_host_accessible = false;
+  static const bool is_dual_space      = false;
+
+  static void attachReference(const SYCLDeviceAllocator<T>& from,
+                              SYCLDeviceAllocator<T>& to,
+                              const T* from_data,
+                              T* ref)
+  {
+    std::ptrdiff_t ptr_offset = ref - from_data;
+    to.attachReference(from, ptr_offset);
   }
+
+  static void updateTo(SYCLDeviceAllocator<T>& alloc, T* host_ptr, size_t n)
+  {
+    std::cout << "Illegal updateTo" << std::endl;
+  }
+
+  static void updateFrom(SYCLDeviceAllocator<T>& alloc, T* host_ptr, size_t n)
+  {
+    std::cout << "Illegal updateFrom" << std::endl;
+  }
+
+  // Not very optimized device side copy.  Only used for testing.
+  static void deviceSideCopyN(SYCLDeviceAllocator<T>& alloc, size_t to, size_t n, size_t from)
+  {
+  }
+
 };
+
 
 
 } // namespace qmcplusplus

@@ -15,7 +15,9 @@
 #include <vector>
 #include <iostream>
 #include "OMPTarget/OMPallocator.hpp"
-#include "OMPTarget/ompBLAS.hpp"
+#include "SYCL/SYCLDeviceManager.hpp"
+#include "SYCL/syclBLAS.hpp"
+#include "SYCL/SYCLallocator.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
 #include <CPU/BLAS.hpp>
@@ -25,16 +27,16 @@
 namespace qmcplusplus
 {
 
-template<typename T>
+template<typename T, typename Alloc>
 void test_gemv(const int M_b, const int N_b, const char trans)
 {
   const int M = trans == 'T' ? M_b : N_b;
   const int N = trans == 'T' ? N_b : M_b;
 
-  using vec_t = Vector<T, OMPallocator<T>>;
-  using mat_t = Matrix<T, OMPallocator<T>>;
+  using vec_t = Vector<T, Alloc>;
+  using mat_t = Matrix<T, Alloc>;
 
-  ompBLAS::ompBLAS_handle handle=0;
+  sycl::queue *handle=get_default_queue();
 
   vec_t A(N);        // Input vector
   mat_t B(M_b, N_b); // Input matrix
@@ -51,7 +53,7 @@ void test_gemv(const int M_b, const int N_b, const char trans)
 
   // Fill C and D with 0
   for (int i = 0; i < M; i++)
-    C[i] = D[i] = T(0);
+    C[i] = D[i] = T(-0.1);
 
   A.updateTo();
   B.updateTo();
@@ -64,9 +66,8 @@ void test_gemv(const int M_b, const int N_b, const char trans)
   // when trans == 'N', the actual calculation is B^T * A[M] = C[N]
   //ompBLAS::gemv(handle, trans, N_b, M_b, alpha, B.device_data(), N_b, A.device_data(), 1, beta, C.device_data(), 1);
 
-  const auto transA = oneapi::mkl::transpose::trans;
-  sycl::queue *main_queue=get_default_queue();
-  oneapi::mkl::blas::gemv(*main_queue, transA, M_b, M_b, alpha, B.device_data(), N_b, A.device_data(), 1, beta, C.device_data(),1).wait();
+  const auto transA = (trans == 'T') ? oneapi::mkl::transpose::trans: oneapi::mkl::transpose::nontrans;
+  syclBLAS::gemv(*handle, transA, M_b, M_b, alpha, B.device_data(), N_b, A.device_data(), 1, beta, C.device_data(),1).wait();
 
   C.updateFrom();
 
@@ -88,7 +89,7 @@ void test_gemv_batched(const int M_b, const int N_b, const char trans, const int
   using vec_t = Vector<T, OMPallocator<T>>;
   using mat_t = Matrix<T, OMPallocator<T>>;
 
-  ompBLAS::ompBLAS_handle handle;
+  sycl::queue *handle=get_default_queue();
 
   // Create input vector
   std::vector<vec_t> As;
@@ -146,33 +147,21 @@ void test_gemv_batched(const int M_b, const int N_b, const char trans, const int
 
     As[batch].updateTo();
     Bs[batch].updateTo();
-    Cs[batch].updateTo();
+    //Skil updateTo on C as beta=0
+    //Cs[batch].updateTo();
   }
 
   Aptrs.updateTo();
   Bptrs.updateTo();
   Cptrs.updateTo();
 
-  // Run tests
-  Vector<T, OMPallocator<T>> alpha(batch_count);
-  Vector<T, OMPallocator<T>> beta(batch_count);
+  T alpha=T(1);
+  T beta=T(0);
 
-  for (int batch = 0; batch < batch_count; batch++)
-  {
-    alpha[batch] = T(1);
-    beta[batch]  = T(0);
-  }
+  const auto transA = (trans == 'T') ? oneapi::mkl::transpose::trans: oneapi::mkl::transpose::nontrans;
 
-#if !defined(ENABLE_MKL_OFFLOAD)
-  ompBLAS::gemv_batched(handle, trans, N_b, M_b, alpha.data(), Bptrs.device_data(), N_b, Aptrs.device_data(), 1,
-                        beta.data(), Cptrs.device_data(), 1, batch_count);
-#else
-  alpha.updateTo();
-  beta.updateTo();
-
-  ompBLAS::gemv_batched(handle, trans, N_b, M_b, alpha.device_data(), Bptrs.device_data(), N_b, Aptrs.device_data(), 1,
-                        beta.device_data(), Cptrs.device_data(), 1, batch_count);
-#endif
+  syclBLAS::gemv_batched(*handle, transA, N_b, M_b, 
+      &alpha, Bptrs.device_data(), N_b, Aptrs.device_data(), 1, &beta, Cptrs.device_data(), 1, batch_count).wait();
 
   for (int batch = 0; batch < batch_count; batch++)
   {
@@ -188,27 +177,28 @@ void test_gemv_batched(const int M_b, const int N_b, const char trans, const int
   }
 }
 
-TEST_CASE("OmpBLAS gemv", "[OMP]")
+TEST_CASE("OmpSYCL gemv", "[SYCL]")
 {
-  const int M           = 32;
-  const int N           = 32;
+  const int M           = 137;
+  const int N           = 79;
   const int batch_count = 23;
 
   // Non-batched test
   std::cout << "Testing TRANS gemv" << std::endl;
-  test_gemv<float>(M, N, 'T');
-  test_gemv<double>(M, N, 'T');
-//#if defined(QMC_COMPLEX)
-  test_gemv<std::complex<float>>(N, M, 'T');
-  test_gemv<std::complex<double>>(N, M, 'T');
-//#endif
-  // Batched Test
-//  std::cout << "Testing TRANS gemv_batched" << std::endl;
-//  test_gemv_batched<float>(M, N, 'T', batch_count);
-//  test_gemv_batched<double>(M, N, 'T', batch_count);
+  test_gemv<float,OMPallocator<float>>(M, N, 'T');
+  test_gemv<double,OMPallocator<double>>(M, N, 'T');
 #if defined(QMC_COMPLEX)
-  test_gemv_batched<std::complex<float>>(N, M, 'T', batch_count);
-  test_gemv_batched<std::complex<double>>(N, M, 'T', batch_count);
+  test_gemv<std::complex<float>, OMPallocator<std::complex<float>>>(N, M, 'T');
+  test_gemv<std::complex<double>,OMPallocator<std::complex<double>>>(N, M, 'T');
+#endif
+
+  // batched
+  std::cout << "Testing TRANS gemv_batched" << std::endl;
+  test_gemv_batched<float>(M, N, 'T', batch_count);
+  test_gemv_batched<double>(M, N, 'T', batch_count);
+#if defined(QMC_COMPLEX)
+  test_gemv_batched<std::complex<float>>(M, N, 'T', batch_count);
+  test_gemv_batched<std::complex<double>>(M, N, 'T', batch_count);
 #endif
 }
 } // namespace qmcplusplus

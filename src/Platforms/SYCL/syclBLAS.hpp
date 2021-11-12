@@ -87,9 +87,9 @@ inline sycl::event ger(sycl::queue& handle,
   const size_t m_max=((m+ts-1)/ts)*ts;
   const size_t n_max=((n+ts-1)/ts)*ts;
 
-  return handle.submit([&](handler& cgh) {
-      cgh.parallel_for(nd_range<2>{{m_max,n_max},{ts,ts}},
-          [=](nd_item<2> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+  return handle.submit([&](sycl::handler& cgh) {
+      cgh.parallel_for(sycl::nd_range<2>{{m_max,n_max},{ts,ts}},
+          [=](sycl::nd_item<2> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
           unsigned x_g = item.get_global_id(0);
           unsigned y_g = item.get_global_id(1);
           if(x_g<m && y_g<n) 
@@ -117,9 +117,9 @@ inline sycl::event ger_batched(sycl::queue& handle,
   const size_t m_max=((m+ts-1)/ts)*ts;
   const size_t n_max=((n+ts-1)/ts)*ts;
 
-  return handle.submit([&](handler& cgh) {
-      cgh.parallel_for(nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
-          [=](nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+  return handle.submit([&](sycl::handler& cgh) {
+      cgh.parallel_for(sycl::nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
+          [=](sycl::nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
           unsigned batch = item.get_global_id(0);
           unsigned x_g = item.get_global_id(1);
           unsigned y_g = item.get_global_id(2);
@@ -148,9 +148,9 @@ inline sycl::event ger_batch_strided(sycl::queue& handle,
   const size_t m_max=((m+ts-1)/ts)*ts;
   const size_t n_max=((n+ts-1)/ts)*ts;
 
-  return handle.submit([&](handler& cgh) {
-      cgh.parallel_for(nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
-          [=](nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+  return handle.submit([&](sycl::handler& cgh) {
+      cgh.parallel_for(sycl::nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
+          [=](sycl::nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
           unsigned batch = item.get_global_id(0);
           unsigned x_g = item.get_global_id(1);
           unsigned y_g = item.get_global_id(2);

@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <atomic>
 #include <map>
+#include "SYCLDeviceManager.hpp"
 #include <level_zero/ze_api.h>
 #include <CL/sycl/backend/level_zero.hpp>
 #include <omp.h>
