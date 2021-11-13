@@ -87,15 +87,13 @@ inline sycl::event ger(sycl::queue& handle,
   const size_t m_max=((m+ts-1)/ts)*ts;
   const size_t n_max=((n+ts-1)/ts)*ts;
 
-  return handle.submit([&](sycl::handler& cgh) {
-      cgh.parallel_for(sycl::nd_range<2>{{m_max,n_max},{ts,ts}},
-          [=](sycl::nd_item<2> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+  return handle.parallel_for(sycl::nd_range<2>{{m_max,n_max},{ts,ts}},
+          [=](sycl::nd_item<2> item) { 
           unsigned x_g = item.get_global_id(0);
           unsigned y_g = item.get_global_id(1);
           if(x_g<m && y_g<n) 
           A[x_g*lda + y_g] += alpha*x[y_g]*y[x_g];
           });
-      });
 }
 
 template<typename T>
@@ -117,8 +115,8 @@ inline sycl::event ger_batched(sycl::queue& handle,
   const size_t m_max=((m+ts-1)/ts)*ts;
   const size_t n_max=((n+ts-1)/ts)*ts;
 
-  return handle.submit([&](sycl::handler& cgh) {
-      cgh.parallel_for(sycl::nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
+  return handle.parallel_for(
+      sycl::nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
           [=](sycl::nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
           unsigned batch = item.get_global_id(0);
           unsigned x_g = item.get_global_id(1);
@@ -126,7 +124,6 @@ inline sycl::event ger_batched(sycl::queue& handle,
           if(x_g<m && y_g<n) 
           A[batch][x_g*lda + y_g] += alpha[batch]*x[batch][y_g]*y[batch][x_g];
           });
-      });
 }
 
 template<typename T>
@@ -163,6 +160,139 @@ inline sycl::event ger_batch_strided(sycl::queue& handle,
           });
       });
 }
+
+template<typename T1, typename T2>
+inline sycl::event transpose(sycl::queue& q, 
+    const T1* restrict in, int m, int lda, T2* restrict out, int n, int ldb, size_t tile_size=16)
+{
+  const size_t m_max=((m+tile_size-1)/tile_size)*tile_size;
+  const size_t n_max=((n+tile_size-1)/tile_size)*tile_size;
+
+  return q.submit([&](sycl::handler& cgh) {
+
+      sycl::accessor<T2, 2, sycl::access::mode::write, sycl::access::target::local> 
+      tile(sycl::range<2>(tile_size,tile_size+1), cgh);
+
+      cgh.parallel_for(sycl::nd_range<2>{{m_max,n_max},{tile_size,tile_size}},
+          [=](sycl::nd_item<2> item) { 
+          unsigned x = item.get_global_id(1);
+          unsigned y = item.get_global_id(0);
+          unsigned xth=item.get_local_id(1);
+          unsigned yth=item.get_local_id(0);
+
+          tile[yth][xth] = in[(y)*lda + x];
+          item.barrier(sycl::access::fence_space::local_space);
+
+          x = item.get_group(0)*tile_size + xth;
+          y = item.get_group(1)*tile_size + yth;
+          if(x<m && y<n)   out[(y)*ldb + x] = tile[xth][yth]; 
+          });
+      });
+  }
+
+template<typename T1, typename T2>
+inline sycl::event transpose_batched_2D(sycl::queue& q, 
+    const T1* restrict in_b, int m, int lda, T2* restrict out_b, int n, int ldb, 
+    int batch_size, size_t tile_size=16)
+{
+  const size_t m_max=((m+tile_size-1)/tile_size)*tile_size;
+  const size_t n_max=((n+tile_size-1)/tile_size)*tile_size;
+
+  return q.submit([&](sycl::handler& cgh) {
+
+      sycl::accessor<T2, 2, sycl::access::mode::write, sycl::access::target::local> 
+      tile(sycl::range<2>(tile_size,tile_size+1), cgh);
+
+      cgh.parallel_for(sycl::nd_range<2>{{m_max,n_max},{tile_size,tile_size}},
+          [=](sycl::nd_item<2> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+          const unsigned xth=item.get_local_id(1);
+          const unsigned yth=item.get_local_id(0);
+          const unsigned x_in = item.get_global_id(1);
+          const unsigned y_in = item.get_global_id(0);
+          const unsigned x_out = item.get_group(0)*tile_size + xth;
+          const unsigned y_out = item.get_group(1)*tile_size + yth;
+
+          for(int batch=0; batch<batch_size; ++batch)
+          {
+          const T1* restrict in=in_b+m*lda*batch;
+
+          tile[yth][xth] = in[(y_in)*lda + x_in];
+          item.barrier(sycl::access::fence_space::local_space);
+
+          T2* restrict out=out_b+n*ldb*batch;
+          if(x_in<m && y_out<n)   out[(y_out)*ldb + x_out] = tile[xth][yth]; 
+          }
+          });
+      });
+  }
+
+template<typename T1, typename T2>
+inline sycl::event transpose_batched(sycl::queue& q, 
+    const T1** restrict in_b, int m, int lda, T2** restrict out_b, int n, int ldb, 
+    int batch_size, size_t tile_size=16)
+{
+  const size_t m_max=((m+tile_size-1)/tile_size)*tile_size;
+  const size_t n_max=((n+tile_size-1)/tile_size)*tile_size;
+
+  return q.submit([&](sycl::handler& cgh) {
+
+      sycl::accessor<T2, 2, sycl::access::mode::write, sycl::access::target::local> 
+      tile(sycl::range<2>(tile_size,tile_size+1), cgh);
+
+      cgh.parallel_for(sycl::nd_range<3>{{size_t(batch_size),m_max,n_max},{1,tile_size,tile_size}},
+          [=](sycl::nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+          const unsigned xth=item.get_local_id(2);
+          const unsigned yth=item.get_local_id(1);
+          const unsigned x_in = item.get_global_id(2);
+          const unsigned y_in = item.get_global_id(1);
+          const unsigned x_out = item.get_group(1)*tile_size + xth;
+          const unsigned y_out = item.get_group(2)*tile_size + yth;
+
+          const unsigned batch=item.get_global_id(0);
+          const T1* restrict in=in_b[batch];
+
+          tile[yth][xth] = in[(y_in)*lda + x_in];
+          item.barrier(sycl::access::fence_space::local_space);
+
+          T2* restrict out=out_b[batch];
+          if(x_in<m && y_out<n)   out[(y_out)*ldb + x_out] = tile[xth][yth]; 
+          });
+      });
+  }
+
+template<typename T1, typename T2>
+inline sycl::event transpose_batched_strided(sycl::queue& q, 
+    const T1* restrict in_b, int m, int lda, T2* restrict out_b, int n, int ldb, 
+    int batch_size, size_t tile_size=16)
+{
+  const size_t m_max=((m+tile_size-1)/tile_size)*tile_size;
+  const size_t n_max=((n+tile_size-1)/tile_size)*tile_size;
+
+  return q.submit([&](sycl::handler& cgh) {
+
+      sycl::accessor<T2, 2, sycl::access::mode::write, sycl::access::target::local> 
+      tile(sycl::range<2>(tile_size,tile_size+1), cgh);
+
+      cgh.parallel_for(sycl::nd_range<3>{{size_t(batch_size),m_max,n_max},{1,tile_size,tile_size}},
+          [=](sycl::nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+          const unsigned xth=item.get_local_id(2);
+          const unsigned yth=item.get_local_id(1);
+          const unsigned x_in = item.get_global_id(2);
+          const unsigned y_in = item.get_global_id(1);
+          const unsigned x_out = item.get_group(1)*tile_size + xth;
+          const unsigned y_out = item.get_group(2)*tile_size + yth;
+
+          const unsigned batch=item.get_global_id(0);
+          const T1* restrict in=in_b+m*lda*batch;
+
+          tile[yth][xth] = in[(y_in)*lda + x_in];
+          item.barrier(sycl::access::fence_space::local_space);
+
+          T2* restrict out=out_b+n*ldb*batch;
+          if(x_in<m && y_out<n)   out[(y_out)*ldb + x_out] = tile[xth][yth]; 
+          });
+      });
+  }
 } // namespace 
 
 } // namespace qmcplusplus

@@ -10,7 +10,7 @@
 #//////////////////////////////////////////////////////////////////////////////////////
 
 
-set(SYCL_RT_SRCS SYCLDeviceManager.cpp)
+set(SYCL_RT_SRCS SYCLruntime.cpp SYCLallocator.cpp)
 
 if(USE_OBJECT_TARGET)
   add_library(platform_sycl_runtime OBJECT ${SYCL_RT_SRCS})
@@ -18,5 +18,5 @@ else()
   add_library(platform_sycl_runtime ${SYCL_RT_SRCS})
 endif()
 
-# temporary
+# temporary need MKL::SYCL
 target_link_libraries(platform_sycl_runtime PUBLIC "-L$ENV{MKLROOT}/lib/intel64 -lmkl_sycl -lsycl -lOpenCL")
