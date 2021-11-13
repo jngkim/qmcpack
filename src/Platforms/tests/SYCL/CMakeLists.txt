@@ -10,14 +10,13 @@
 #//////////////////////////////////////////////////////////////////////////////////////
 
 
-#set(UTEST_EXE test_sycl)
-#set(UTEST_NAME deterministic-unit_${UTEST_EXE})
+set(UTEST_EXE test_sycl)
+set(UTEST_NAME deterministic-unit_${UTEST_EXE})
 
-#add_executable(${UTEST_EXE} test_vector.cpp test_math.cpp test_deep_copy.cpp test_class_member.cpp
-#                            test_runtime_mem.cpp)
-#target_link_libraries(${UTEST_EXE} platform_runtime catch_main)
-#
-#add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
+add_executable(${UTEST_EXE} test_SYCLallocator.cpp)
+target_link_libraries(${UTEST_EXE} platform_runtime containers catch_main)
+
+add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
 
 set(UTEST_EXE test_sycl_blas)
 set(UTEST_NAME deterministic-unit_${UTEST_EXE})
@@ -31,7 +30,15 @@ endif()
 
 add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
 
-add_executable(${UTEST_EXE} test_SYCLallocator.cpp)
-target_link_libraries(${UTEST_EXE} platform_runtime containers catch_main)
+set(UTEST_EXE test_sycl_solver)
+set(UTEST_NAME deterministic-unit_${UTEST_EXE})
+
+add_executable(${UTEST_EXE} test_syclInverse.cpp)
+target_link_libraries(${UTEST_EXE} catch_main containers)
+
+if(USE_OBJECT_TARGET)
+  target_link_libraries(${UTEST_EXE} platform_runtime)
+endif()
 
 add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
+
