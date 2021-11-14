@@ -20,45 +20,113 @@
 #include "SYCL/SYCLallocator.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
-#include "QMCWaveFunctions/detail/SYCL/determinant_helper.hpp"
+#include "QMCWaveFunctions/detail/SYCL/sycl_LU.hpp"
 
 
 namespace qmcplusplus
 {
 
-TEST_CASE("OmpSYCL determinant values", "[SYCL]")
+  template<typename T>
+    void test_detlog(int M)
+    {
+      Vector<T,OMPallocator<T>>  A(M*M);
+      Vector<std::int64_t,OMPallocator<std::int64_t>>  Pivots(M);
+      std::iota(Pivots.begin(),Pivots.end(),1);
+
+      std::swap(Pivots[2],Pivots[3]);
+
+      {
+        std::mt19937 rng;
+        std::uniform_real_distribution<T> udist{T(-0.5),T(0.5)}; 
+        std::generate_n(A.data(),A.size(),[&]() { return udist(rng);});
+      }
+
+      auto res=computeLogDet<T>(M,M,A.data(),Pivots.data());
+
+      A.updateTo();
+      Pivots.updateTo();
+
+      sycl::queue m_queue{*get_default_queue()};
+      auto res_gpu= computeLogDet<T>(m_queue,M,M,A.device_data(), Pivots.device_data());
+
+      CHECK(res.real() == Approx(res_gpu.real()));
+      CHECK(res.imag() == Approx(res_gpu.imag()));
+
+      res_gpu= computeLogDetNDR<T>(m_queue,M,M,A.device_data(), Pivots.device_data());
+      CHECK(res.real() == Approx(res_gpu.real()));
+      CHECK(res.imag() == Approx(res_gpu.imag()));
+
+    }
+
+TEST_CASE("OmpSYCL single DetLog", "[SYCL]")
 {
-  const int M           = 1024;
+  const int M  = 1024;
 
-  using T=double;
+  test_detlog<double>(M);
+}
 
-  Vector<T,OMPallocator<T>>  A(M*M);
-  Vector<std::int64_t,OMPallocator<std::int64_t>>  Pivots(M);
-  std::iota(Pivots.begin(),Pivots.end(),1);
+  template<typename T>
+    void test_detlog_batched(int M, int batch_count)
+    {
+      Vector<T,OMPallocator<T>>  A(M*M*batch_count);
+      Vector<std::int64_t,OMPallocator<std::int64_t>>  Pivots(M*batch_count);
 
-  std::swap(Pivots[2],Pivots[3]);
+      for(int iw=0; iw<batch_count; ++iw)
+      {
+        auto* pv=Pivots.data()+iw*M;
+        std::iota(pv,pv+M,1);
+        std::swap(pv[2],pv[3]);
+      }
 
-  {
-    std::mt19937 rng;
-    std::uniform_real_distribution<T> udist{T(-0.5),T(0.5)}; 
-    std::generate_n(A.data(),A.size(),[&]() { return udist(rng);});
-  }
+      {
+        std::mt19937 rng;
+        std::uniform_real_distribution<T> udist{T(-0.5),T(0.5)}; 
+        std::generate_n(A.data(),A.size(),[&]() { return udist(rng);});
+      }
 
-  auto res=computeLogDet<T>(A.data(),M,M,Pivots.data());
+      A.updateTo();
+      Pivots.updateTo();
 
-  A.updateTo();
-  Pivots.updateTo();
+      sycl::queue m_queue{*get_default_queue()};
+      const int strideA=M*M;
 
-  sycl::queue m_queue{*get_default_queue()};
-  auto res_gpu= computeLogDet<T>(m_queue,A.device_data(), M,M,Pivots.device_data());
+      Vector<std::complex<T>,OMPallocator<std::complex<T>>>  logdets(batch_count);
+      computeLogDet_batched(m_queue,M,M,A.device_data(), Pivots.device_data(), 
+          logdets.device_data(), batch_count).wait();
+      logdets.updateFrom();
 
-  CHECK(res.real() == Approx(res_gpu.real()));
-  CHECK(res.imag() == Approx(res_gpu.imag()));
+      for(int iw=0; iw<batch_count; ++iw)
+      {
+        auto res=computeLogDet<T>(M,M,A.data()+iw*strideA,Pivots.data()+iw*M);
+        auto res_gpu=logdets[iw];
+        CHECK(res.real() == Approx(res_gpu.real()));
+        CHECK(res.imag() == Approx(res_gpu.imag()));
+      }
+#if 0
+      //group reduction is broken
+      logdets=T{};
+      logdets.updateTo();
 
-  res_gpu= computeLogDet_ND<T>(m_queue,A.device_data(), M,M,Pivots.device_data());
+      computeLogDetGroup(m_queue,M,M,A.device_data(), Pivots.device_data(), 
+          logdets.device_data(), batch_count).wait();
+      logdets.updateFrom();
 
-  CHECK(res.real() == Approx(res_gpu.real()));
-  CHECK(res.imag() == Approx(res_gpu.imag()));
+      for(int iw=0; iw<batch_count; ++iw)
+      {
+        auto res=computeLogDet<T>(M,M,A.data()+iw*strideA,Pivots.data()+iw*M);
+        auto res_gpu=logdets[iw];
+        CHECK(res.real() == Approx(res_gpu.real()));
+        CHECK(res.imag() == Approx(res_gpu.imag()));
+      }
+#endif
+    }
+
+TEST_CASE("OmpSYCL batched DetLog", "[SYCL]")
+{
+  const int M  = 256;
+  const int batch_count = 256;
+
+  test_detlog_batched<double>(M,batch_count);
 }
 
 } // namespace qmcplusplus
