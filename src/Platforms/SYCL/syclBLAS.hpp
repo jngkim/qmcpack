@@ -293,6 +293,16 @@ inline sycl::event transpose_batched_strided(sycl::queue& q,
           });
       });
   }
+
+  template <typename T1, typename T2>
+    inline sycl::event
+    copy_n(sycl::queue &aq, const T1* restrict VA, size_t array_size, T2* restrict VC)
+    {
+      return aq.parallel_for({array_size}, [=](sycl::id<1> id) {
+          VC[id] = static_cast<T2>(VA[id]);
+          });
+    }
+
 } // namespace 
 
 } // namespace qmcplusplus

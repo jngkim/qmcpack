@@ -18,6 +18,7 @@ target_link_libraries(${UTEST_EXE} platform_runtime containers catch_main)
 
 add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
 
+## gemv/ger
 set(UTEST_EXE test_sycl_blas)
 set(UTEST_NAME deterministic-unit_${UTEST_EXE})
 
@@ -30,10 +31,24 @@ endif()
 
 add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
 
+## LU/Inverse
 set(UTEST_EXE test_sycl_solver)
 set(UTEST_NAME deterministic-unit_${UTEST_EXE})
 
 add_executable(${UTEST_EXE} test_syclInverse.cpp)
+target_link_libraries(${UTEST_EXE} catch_main containers)
+
+if(USE_OBJECT_TARGET)
+  target_link_libraries(${UTEST_EXE} platform_runtime)
+endif()
+
+add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
+
+##
+set(UTEST_EXE test_sycl_determinant)
+set(UTEST_NAME deterministic-unit_${UTEST_EXE})
+
+add_executable(${UTEST_EXE} test_sycl_determinant.cpp)
 target_link_libraries(${UTEST_EXE} catch_main containers)
 
 if(USE_OBJECT_TARGET)
