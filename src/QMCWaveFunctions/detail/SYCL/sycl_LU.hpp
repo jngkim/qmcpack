@@ -196,6 +196,54 @@ template<typename TMAT, typename T, typename Index_t>
           });
   }
 
+template<typename T, size_t COLBS>
+inline void copyAinvRow_saveGL(sycl::queue& aq,
+                               const int rowchanged,
+                               const int n,
+                               const T* const Ainv[],
+                               const int lda,
+                               T* const temp[],
+                               T* const rcopy[],
+                               const T* const dphi_in[],
+                               const T* const d2phi_in[],
+                               T* const dphi_out[],
+                               T* const d2phi_out[],
+                               const size_t batch_count)
+{
+  return aq.parallel_for(sycl::nd_range<1>{{batch_size*COLBS},{COLBS}}, 
+      [=](sycl::nd_item<1> item) {
+      const int iw                      = item.get_group(0);
+      const T* __restrict__ Ainv_iw     = Ainv[iw];
+      T* __restrict__ temp_iw           = temp[iw];
+      T* __restrict__ rcopy_iw          = rcopy[iw];
+      const T* __restrict__ dphi_in_iw  = dphi_in[iw];
+      const T* __restrict__ d2phi_in_iw = d2phi_in[iw];
+      T* __restrict__ dphi_out_iw       = dphi_out[iw];
+      T* __restrict__ d2phi_out_iw      = d2phi_out[iw];
+
+      const unsigned tid = item.get_local_id(0);
+      if (tid == 0)
+        temp_iw[rowchanged] = -temp_iw[rowchanged];
+
+      const unsigned num_col_blocks = (n + COLBS - 1) / COLBS;
+      for (unsigned ib = 0; ib < num_col_blocks; ib++)
+      {
+        const unsigned col_id = ib * COLBS + threadIdx.x;
+        if (col_id < n)
+        {
+          rcopy_iw[col_id] = Ainv_iw[rowchanged * lda + col_id];
+
+          // the following copying data on the device is not part of SM-1
+          // it is intended to copy dphiV and d2phiV from temporary to final without a separate kernel.
+          dphi_out_iw[col_id * 3]     = dphi_in_iw[col_id * 3];
+          dphi_out_iw[col_id * 3 + 1] = dphi_in_iw[col_id * 3 + 1];
+          dphi_out_iw[col_id * 3 + 2] = dphi_in_iw[col_id * 3 + 2];
+          d2phi_out_iw[col_id]        = d2phi_in_iw[col_id];
+        }
+      }
+      });
+}
+
 
   /** utilities for debugging */
   inline double inverse_gflops(size_t N, double t)
