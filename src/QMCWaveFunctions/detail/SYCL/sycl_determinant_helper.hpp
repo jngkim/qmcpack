@@ -196,6 +196,25 @@ template<typename TMAT, typename T, typename Index_t>
           });
   }
 
+  template<typename T, typename Index_t>
+  inline sycl::event 
+  applyW_batched(sycl::queue& aq, T** restrict UV ,const int norb, 
+                 const Index_t** restrict delay_list, const int delay_count, const size_t batch_count)
+  {
+    constexpr T mone(-1);
+
+    return aq.parallel_for(sycl::nd_range<1>{{batch_count},{batch_count}}, 
+        [=](sycl::nd_item<1> item) {
+        const int  iw                     = item.get_local_id(0);
+        const int* restrict delay_list_iw = delay_list[iw];
+        T* restrict uv_iw=UV[iw];
+        for(int j=0; j<delay_count; j++)
+        {
+          uv_iw[delay_list_iw[j]*delay_count+j] += mone;
+        }
+        });
+  }
+
 template<typename T, size_t COLBS>
 inline void copyAinvRow_saveGL(sycl::queue& aq,
                                const int rowchanged,
@@ -241,6 +260,147 @@ inline void copyAinvRow_saveGL(sycl::queue& aq,
           d2phi_out_iw[col_id]        = d2phi_in_iw[col_id];
         }
       }
+      });
+}
+
+template<typename T, size_t COLBS, unsigned DIM=3>
+inline sycl::event calcGradients(sycl::queue& aq,
+                                 const int n,
+                                 const T* const Ainvrow[],
+                                 const T* const dpsiMrow[],
+                                 T* const grads_now,
+                                 size_t batch_count)
+{
+  //translation of calcGradients_cuda+calcGradients_kernel
+  return aq.submit([&](sycl::handler& cgh) {
+
+      sycl::accessor<T, 1, sycl::access::mode::write, sycl::access::target::local> 
+         sum(sycl::range<1>{DIM*COLBS}, cgh);
+      cgh.parallel_for(sycl::nd_range<1>{{batch_count*COLBS},{COLBS}}, 
+      [=](sycl::nd_item<1> item) {
+      const unsigned iw                    = item.get_group(0);
+      const T* __restrict__ invRow    = Ainvrow[iw];
+      const T* __restrict__ dpsiM_row = dpsiMrow[iw];
+
+      const unsigned tid = item.get_local_id(0);
+      for (unsigned idim = 0; idim < DIM; idim++)
+        sum[idim * COLBS + tid] = T{};
+
+      const unsigned num_col_blocks = (n + COLBS - 1) / COLBS;
+      for (unsigned ib = 0; ib < num_col_blocks; ib++)
+      {
+         const unsigned col_id = ib * COLBS + tid;
+         if (col_id < n)
+           for (unsigned idim = 0; idim < DIM; idim++)
+             sum[idim * COLBS + tid] += invRow[col_id] * dpsiM_row[col_id * DIM + idim];
+      }
+
+       for (unsigned iend = COLBS / 2; iend > 0; iend /= 2)
+       {
+         item.barrier(sycl::access::fence_space::local_space);
+         if (tid < iend)
+           for (unsigned idim = 0; idim < DIM; idim++)
+             sum[idim * COLBS + tid] += sum[idim * COLBS + tid + iend];
+       }
+     
+       if (tid == 0)
+         for (int idim = 0; idim < DIM; idim++)
+           grads_now[iw * DIM + idim] = sum[idim * COLBS];
+      });
+  });
+}
+
+template<typename T, size_t COLBS>
+sycl::event add_delay_list_save_sigma_VGL(sycl::queue* aq,
+                                          int* const delay_list[],
+                                          const int rowchanged,
+                                          const int delay_count,
+                                          T* const binv[],
+                                          const int binv_lda,
+                                          const T* const ratio_inv,
+                                          const T* const phi_in[],
+                                          const T* const dphi_in[],
+                                          const T* const d2phi_in[],
+                                          T* const phi_out[],
+                                          T* const dphi_out[],
+                                          T* const d2phi_out[],
+                                          const int norb,
+                                          const int n_accepted)
+{
+  return aq.parallel_for(sycl::nd_range<1>{{batch_count*COLBS},{COLBS}}, 
+      [=](sycl::nd_item<1> item) {
+  const unsigned tid = item.get_local_id(0);
+  const unsigned iw  = blockIdx.x;
+
+  if (iw < n_accepted)
+  {
+    // real accept, settle y and Z
+    int* __restrict__ delay_list_iw   = delay_list[iw];
+    T* __restrict__ binvrow_iw        = binv[iw] + delay_count * binv_lda;
+    const T* __restrict__ phi_in_iw   = phi_in[iw];
+    const T* __restrict__ dphi_in_iw  = dphi_in[iw];
+    const T* __restrict__ d2phi_in_iw = d2phi_in[iw];
+    T* __restrict__ phi_out_iw        = phi_out[iw];
+    T* __restrict__ dphi_out_iw       = dphi_out[iw];
+    T* __restrict__ d2phi_out_iw      = d2phi_out[iw];
+
+    if (tid == 0)
+    {
+      delay_list_iw[delay_count] = rowchanged;
+      binvrow_iw[delay_count]    = ratio_inv[iw];
+    }
+
+    const unsigned num_delay_count_col_blocks = (delay_count + COLBS - 1) / COLBS;
+    for (unsigned ib = 0; ib < num_delay_count_col_blocks; ib++)
+    {
+      const unsigned col_id = ib * COLBS + tid;
+      if (col_id < delay_count)
+        binvrow_iw[col_id] *= ratio_inv[iw];
+    }
+
+    const unsigned num_col_blocks = (norb + COLBS - 1) / COLBS;
+    for (unsigned ib = 0; ib < num_col_blocks; ib++)
+    {
+      const unsigned col_id = ib * COLBS + tid;
+      if (col_id < norb)
+      {
+        // copy phiV, dphiV and d2phiV from temporary to final without a separate kernel.
+        phi_out_iw[col_id]          = phi_in_iw[col_id];
+        dphi_out_iw[col_id * 3]     = dphi_in_iw[col_id * 3];
+        dphi_out_iw[col_id * 3 + 1] = dphi_in_iw[col_id * 3 + 1];
+        dphi_out_iw[col_id * 3 + 2] = dphi_in_iw[col_id * 3 + 2];
+        d2phi_out_iw[col_id]        = d2phi_in_iw[col_id];
+      }
+    }
+  }
+  else
+  {
+    // fake accept. Set Y, Z with zero and x with 1
+    T* __restrict__ Urow_iw   = phi_out[iw];
+    const unsigned num_blocks_norb = (norb + COLBS - 1) / COLBS;
+    for (unsigned ib = 0; ib < num_blocks_norb; ib++)
+    {
+      const unsigned col_id = ib * COLBS + tid;
+      if (col_id < norb)
+        Urow_iw[col_id] = T(0);
+    }
+
+    T* __restrict__ binv_iw          = binv[iw];
+    const unsigned num_blocks_delay_count = (delay_count + COLBS - 1) / COLBS;
+    for (unsigned ib = 0; ib < num_blocks_delay_count; ib++)
+    {
+      const unsigned col_id = ib * COLBS + tid;
+      if (col_id < delay_count)
+        binv_iw[delay_count * binv_lda + col_id] = binv_iw[delay_count + binv_lda * col_id] = T(0);
+    }
+
+    int* __restrict__ delay_list_iw = delay_list[iw];
+    if (tid == 0)
+    {
+      binv_iw[delay_count * binv_lda + delay_count] = T(1);
+      delay_list_iw[delay_count]                    = -1;
+    }
+  }
       });
 }
 
