@@ -20,7 +20,7 @@
 #include "SYCL/SYCLallocator.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
-#include "QMCWaveFunctions/detail/SYCL/sycl_LU.hpp"
+#include "QMCWaveFunctions/detail/SYCL/sycl_determinant_helper.hpp"
 
 
 namespace qmcplusplus

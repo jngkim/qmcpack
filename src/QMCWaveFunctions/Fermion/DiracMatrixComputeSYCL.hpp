@@ -22,7 +22,7 @@
 #include "SYCL/SYCLruntime.hpp"
 #include "SYCL/SYCLallocator.hpp"
 #include "SYCL/syclBLAS.hpp"
-#include "QMCWavefunctions/detail/SYCL/sycl_LU.hpp"
+#include "QMCWavefunctions/detail/SYCL/sycl_determinant_helper.hpp"
 #include "ResourceCollection.h"
 #include "oneapi/mkl/lapack.hpp"
 #include "mkl.h"
