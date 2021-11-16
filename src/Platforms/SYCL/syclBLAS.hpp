@@ -46,9 +46,10 @@ inline sycl::event gemv(sycl::queue&   handle,
                     const int          incx,
                     const T            beta,
                     T* const           y,
-                    const int          incy)
+                    const int          incy,
+                    const std::vector<sycl::event> &events = {})
 {
-  return oneapi::mkl::blas::gemv(handle, trans, m, n, alpha, A, lda, x, incx, beta, y,incy);
+  return oneapi::mkl::blas::gemv(handle, trans, m, n, alpha, A, lda, x, incx, beta, y,incy,events);
 }
 
 template<typename T>
@@ -64,10 +65,11 @@ inline sycl::event gemv_batched(sycl::queue&   handle,
                     const T*            beta,
                     T**                 y,
                     const syclBLAS_int  incy,
-                    const syclBLAS_int  batch_count)
+                    const syclBLAS_int  batch_count,
+                    const std::vector<sycl::event> &events = {})
 {
   //using group API: only one group
-  return oneapi::mkl::blas::gemv_batch(handle, &trans, &m, &n, alpha, A, &lda,x,&incx, beta, y, &incy,1,&batch_count);
+  return oneapi::mkl::blas::gemv_batch(handle, &trans, &m, &n, alpha, A, &lda,x,&incx, beta, y, &incy,1,&batch_count, events);
 }
 
 template<typename T>

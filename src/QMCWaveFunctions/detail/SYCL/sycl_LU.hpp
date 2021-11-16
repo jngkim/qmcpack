@@ -210,7 +210,7 @@ inline void copyAinvRow_saveGL(sycl::queue& aq,
                                T* const d2phi_out[],
                                const size_t batch_count)
 {
-  return aq.parallel_for(sycl::nd_range<1>{{batch_size*COLBS},{COLBS}}, 
+  return aq.parallel_for(sycl::nd_range<1>{{batch_count*COLBS},{COLBS}}, 
       [=](sycl::nd_item<1> item) {
       const int iw                      = item.get_group(0);
       const T* __restrict__ Ainv_iw     = Ainv[iw];
@@ -228,7 +228,7 @@ inline void copyAinvRow_saveGL(sycl::queue& aq,
       const unsigned num_col_blocks = (n + COLBS - 1) / COLBS;
       for (unsigned ib = 0; ib < num_col_blocks; ib++)
       {
-        const unsigned col_id = ib * COLBS + threadIdx.x;
+        const unsigned col_id = ib * COLBS + tid; 
         if (col_id < n)
         {
           rcopy_iw[col_id] = Ainv_iw[rowchanged * lda + col_id];

@@ -16,7 +16,7 @@
 #include <iostream>
 #include "OMPTarget/OMPallocator.hpp"
 #include "SYCL/SYCLruntime.hpp"
-//#include "SYCL/SYCLallocator.hpp"
+#include "SYCL/SYCLallocator.hpp"
 #include "SYCL/syclBLAS.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
@@ -312,13 +312,13 @@ void test_ger_batched(const int M, const int N, const int batch_count)
   Bptrs.updateTo();
   Cptrs.updateTo();
 
-  vec_t alpha(batch_count);
+  //use host allocator for alpha 
+  Vector<T,SYCLHostAllocator<T>> alpha(batch_count);
   for(int i=0; i<batch_count; i++)
     alpha[i]=1;
-  alpha.updateTo();
 
   syclBLAS::ger_batched(*handle, M, N,
-      alpha.device_data(), Aptrs.device_data(), 1, Bptrs.device_data(), 1, Cptrs.device_data(), N, batch_count).wait();
+      alpha.data(), Aptrs.device_data(), 1, Bptrs.device_data(), 1, Cptrs.device_data(), N, batch_count).wait();
 
   for (int batch = 0; batch < batch_count; batch++)
   {
