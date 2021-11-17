@@ -52,18 +52,16 @@ public:
   using DetInverter   = DiracMatrixComputeSYCL<FullPrecValue>;
 
   //use the same allocator as DetInverter,
-  //Use m_queue->memcpy to manage asynchronous copies
-  template<typename T>
-  using PinnedDualAllocator = DetInvert::OffloadPinnedAllocator<T>;
-
+  template<typename DT>
+  using PinnedDualAllocator = DetInvert::OffloadPinnedAllocator<DT>;
   template<typename DT>
   using DualVector = Vector<DT, PinnedDualAllocator<DT>>;
   template<typename DT>
   using DualMatrix = Matrix<DT, PinnedDualAllocator<DT>>;
 
+  //Use m_queue->memcpy to manage asynchronous copies
   template<typename DT>
   using DevicelAllocator = SYCLAllocator<DT>;
-
   template<typename DT>
   using DeviceVector = Vector<DT, SYCLAllocator<DT>>;
 
@@ -103,7 +101,6 @@ public:
 
 private:
   /// legacy single walker matrix inversion engine
-  //DiracMatrix<FullPrecValue> detEng;
   DiracMatrixComputeSYCL<FullPrecValue> detEng;
   /* inverse transpose of psiM(j,i) \f$= \psi_j({\bf r}_i)\f$
    * Only NumOrbitals x NumOrbitals subblock has meaningful data
@@ -135,24 +132,25 @@ private:
   /// new column of B
   DeviceVector<Value> p_gpu;
   /// list of delayed electrons
-  DeviceVector<int> delay_list_gpu; //this can be pinned
+  //DeviceVector<int> delay_list_gpu; //this can be pinned
+  Vector<int,SYCLHostAllocator> delay_list; 
   /// current number of delays, increase one for each acceptance, reset to 0 after updating Ainv
   int delay_count;
 
   /** @ingroup Resources
    *  @{ */
-  // SYCL stream, cublas handle object
+  // SYCL queue
   //std::unique_ptr<sycl::queue> sycl_handles_;
   sycl::queue* m_queue = nullptr;
   // use it for async operations while interacting with the callers
   sycl::event m_event;
   /// crowd scope memory resource
-  //std::unique_ptr<MatrixDelayedUpdateSYCLMultiWalkerMem> mw_mem_;
+  std::unique_ptr<MatrixDelayedUpdateSYCLMultiWalkerMem> mw_mem_;
   /**}@ */
 
   inline void waitStream()
   {
-    //m_queue->wait(m_event);
+    //m_event.wait();
   }
 
   /** ensure no previous delay left.
@@ -180,7 +178,6 @@ private:
     const int nw                     = engines.size();
     int& delay_count                 = engine_leader.delay_count;
     prepare_inv_row_buffer_H2D.resize(7 * nw);
-    engine_leader.resize_fill_constant_arrays(nw);
 
     const int lda_Binv = engine_leader.Binv_gpu.cols();
     Matrix<Value*> ptr_buffer(prepare_inv_row_buffer_H2D.data(), 7, nw);
@@ -218,21 +215,20 @@ private:
     const auto nontrans = oneapi::mkl::transpose::nontrans;
 
     //Using group API with a group, note the use of &cone, &cminus_one, and &czero
-    const Value cone       = T(1.0);
-    const Value cminus_one = T(-1.0);
-    const Value czero      = T(0.0);
+    const Value cone      = Value(1.0);
+    const Value cminusone = Value(-1.0);
+    const Value czero     = Value(0.0);
 
     // multiply V (NxK) Binv(KxK) U(KxN) invRow right to the left
     //BLAS::gemv('T', norb, delay_count, cone, U_gpu.data(), norb, invRow.data(), 1, czero, p_gpu.data(), 1);
     auto e = syclBLAS::gemv_batched(*m_queue, trans, norb, delay_count, &cone, U_mw_ptr, norb, invRow_mw_ptr, 1, &czero,
                                     p_mw_ptr, 1, nw);
     //BLAS::gemv('N', delay_count, delay_count, -cone, Binv.data(), lda_Binv, p.data(), 1, czero, Binv[delay_count], 1);
-    e = syclBLAS::gemv_batched(*m_queue, nontrans, delay_count, delay_count, &cminus_one, Binv_mw_ptr, lda_Binv,
+    e = syclBLAS::gemv_batched(*m_queue, nontrans, delay_count, delay_count, &cminusone, Binv_mw_ptr, lda_Binv,
                                p_mw_ptr, 1, &czero, BinvRow_mw_ptr, 1, nw, {e});
     //BLAS::gemv('N', norb, delay_count, cone, V.data(), norb, Binv[delay_count], 1, cone, invRow.data(), 1);
     syclBLAS::gemv_batched(*m_queue, nontranse, norb, delay_count, &cone, V_mw_ptr, norb, BinvRow_mw_ptr, 1, &cone,
-                           invRow_mw_ptr, 1, nw, {e})
-        .wait();
+                           invRow_mw_ptr, 1, nw, {e}).wait();
     //no need to wait in a perfect world
 
     engine_leader.invRow_id = rowchanged;
