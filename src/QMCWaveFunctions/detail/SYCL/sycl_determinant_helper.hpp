@@ -35,8 +35,6 @@ inline std::complex<T> computeLogDet(sycl::queue& aq,
                                      const Index_t* restrict pivot)
   {
     constexpr size_t COLBS=32;
-    constexpr std::complex<T> log_One{T(1),T(0)};
-    constexpr std::complex<T> log_mOne{T(-1),T(0)};
 
     std::complex<T> result{};
     {
@@ -311,7 +309,7 @@ inline sycl::event calcGradients(sycl::queue& aq,
 }
 
 template<typename T, size_t COLBS>
-sycl::event add_delay_list_save_sigma_VGL(sycl::queue* aq,
+sycl::event add_delay_list_save_sigma_VGL(sycl::queue& aq,
                                           int* const delay_list[],
                                           const int rowchanged,
                                           const int delay_count,
@@ -325,12 +323,13 @@ sycl::event add_delay_list_save_sigma_VGL(sycl::queue* aq,
                                           T* const dphi_out[],
                                           T* const d2phi_out[],
                                           const int norb,
-                                          const int n_accepted)
+                                          const int n_accepted,
+                                          const size_t batch_count) 
 {
   return aq.parallel_for(sycl::nd_range<1>{{batch_count*COLBS},{COLBS}}, 
       [=](sycl::nd_item<1> item) {
   const unsigned tid = item.get_local_id(0);
-  const unsigned iw  = blockIdx.x;
+  const unsigned iw  = item.get_group(0);
 
   if (iw < n_accepted)
   {

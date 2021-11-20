@@ -4,7 +4,7 @@
 //
 // Copyright (c) 2021 QMCPACK developers.
 //
-// File developed by: Peter Doak, doakpw@ornl.gov, Oak Ridge National Lab
+// File developed by: Jeongnim Kim, jeongnim.kim@intel.com, Intel corporation
 //
 // File created by: Peter Doak, doakpw@ornl.gov, Oak Ridge National Lab
 //////////////////////////////////////////////////////////////////////////////////////
@@ -22,7 +22,7 @@
 #include "SYCL/SYCLruntime.hpp"
 #include "SYCL/SYCLallocator.hpp"
 #include "SYCL/syclBLAS.hpp"
-#include "QMCWavefunctions/detail/SYCL/sycl_determinant_helper.hpp"
+#include "QMCWaveFunctions/detail/SYCL/sycl_determinant_helper.hpp"
 #include "ResourceCollection.h"
 #include "oneapi/mkl/lapack.hpp"
 #include "mkl.h"
@@ -40,12 +40,9 @@ namespace syclSolver=oneapi::mkl::lapack;
  *  
  *  There is one per crowd not one per MatrixUpdateEngine.
  *  this puts ownership of the scratch resources in a sensible place.
- *  
- *  Currently this is CPU only but its external API is somewhat written to
- *  enforce the passing Dual data objects as arguments.  Except for the single
- *  particle API log_value which is not Dual type but had better have an address in a OMPtarget
- *  mapped region if target is used with it. This makes this API incompatible to
- *  that used by MatrixDelayedUpdateCuda and DiracMatrixComputeCUDA.
+ *
+ *  This is compatible with DiracMatrixComputeOMPTarget and can be used both on CPU
+ *  and GPU when the resrouce management is properly handled.
  */
 template<typename VALUE_FP>
 class DiracMatrixComputeSYCL : public Resource
@@ -89,8 +86,8 @@ private:
     if(m_queue==nullptr) m_queue=get_default_queue();
 
     const int nw = batch_size;
-    getrf_ws=syclSolver::getrf_scratchpad_size<T>(handle,n,n,lda);
-    getri_ws=syclSolver::getri_scratchpad_size<T>(handle,n,lda);
+    getrf_ws=syclSolver::getrf_scratchpad_size<VALUE_FP>(*m_queue,n,n,lda);
+    getri_ws=syclSolver::getri_scratchpad_size<VALUE_FP>(*m_queue,n,lda);
     lwork_=std::max(getrf_ws,getri_ws);
 
     psiM_fp_.resize(nw*n*lda);
@@ -124,12 +121,12 @@ public:
     const size_t lda = a_mat.cols();
     const size_t ldb = inv_a_mat.cols();
 
-    if(pivots_.size() < lda) resize(n,lda,1);
+    if(pivots_.size() < lda) reset(n,lda,1);
 
     //all blocking: m_queue can be an inorder queue per object
     syclBLAS::transpose(*m_queue,a_mat.device_data(),n,lda,inv_a_mat.device_data(),n,ldb).wait();
     syclSolver::getrf(*m_queue,n,n,inv_a_mat.device_data(),lda, pivots_.data(), m_work_.data(), getrf_ws).wait();
-    log_value=computeLogDet<FullPrecReal>(*m_queue,inv_a_mat.device_data(), n, lda, pivots_.data());
+    log_value=computeLogDet<FullPrecReal>(*m_queue, n, lda, inv_a_mat.device_data(), pivots_.data());
     syclSolver::getri(*m_queue,n,inv_a_mat.device_data(),lda, pivots_.data(), m_work_.data(), getri_ws).wait();
 
     inv_a_mat.updateFrom();
@@ -150,13 +147,13 @@ public:
     const int lda = a_mat.cols();
     const int ldb = inv_a_mat.cols();
 
-    if(pivots_.size() < lda) resize(n,lda,1);
+    if(pivots_.size() < lda) reset(n,lda,1);
 
     syclBLAS::transpose(*m_queue,a_mat.device_data(),n,lda,psiM_fp_.data(),n,ldb).wait();
     syclSolver::getrf(*m_queue,n,n,psiM_fp_.data().device_data(),lda, pivots_.data(), m_work_.data(), getrf_ws).wait();
     log_value=computeLogDet<FullPrecReal>(*m_queue,inv_a_mat.device_data(), n, lda, pivots_.data());
     syclSolver::getri(*m_queue,n,psiM_fp_.data(),lda, pivots_.data(), m_work_.data(), getri_ws).wait();
-    syclBLAS::copy(*m_queue, n, n, psiM_fp_.data(), lda, inv_a_mat.device_data()).wait();
+    syclBLAS::copy(*m_queue, n, n, psiM_fp_.data(), lda, inv_a_mat.device_data(),ldb).wait();
 
     inv_a_mat.updateFrom();
   }
@@ -172,18 +169,19 @@ public:
                                  OffloadPinnedVector<LogValue>& log_values)
   {
 #if 0
+    //invert_transpose
     for (int iw = 0; iw < a_mats.size(); iw++)
     {
       invert_transpose(resource,a_mats[iw].get(),inv_a_mats[iw].get(),log_values[iw]);
     }
-#endif 
+#else
     const int nw  = a_mats.size();
     const int n   = a_mats[0].get().rows();
     const int lda = a_mats[0].get().cols();
     const int ldb = inv_a_mats[0].get().cols();
     const int nsqr{n * lda};
 
-    if(pivots_.size()<nw*lda) resize(n,lda,nw);
+    if(pivots_.size()<nw*lda) reset(n,lda,nw);
 
     for (int iw = 0; iw < nw; ++iw)
       lu_events[iw] = syclBLAS::transpose(*m_queue, a_mats[iw].get().device_data(),n,lda, psiM_fp_.data()+iw*nsqr,n,ldb); 
@@ -195,10 +193,11 @@ public:
     for (int iw = 0; iw < nw; ++iw)
       lu_events[iw]= syclSolver::getrf(*m_queue,n,n,psiM_fp_.data()+iw*nsqr,lda, 
           pivots_.data()+iw*lda, m_work_.data()+iw*getrf_ws, getrf_ws, {lu_events[iw]});
-    m_queue->wait(lu_events);
+    sycl::event::wait(lu_events);
 #endif
 
-    computeLogDet_batched(*m_queue,psiM_fp_.data(),n,lda,pivots_.data(),log_values.device_data(),nw).wait();
+    computeLogDet_batched(*m_queue,n,lda,
+        psiM_fp_.data(),pivots_.data(),log_values.device_data(),nw).wait();
 
 #if MKL_BATCHED_INVERSE
     syclSolver::getrf_batch(*m_queue,n,psiM_fp_.data(),lda,nsqr,
@@ -207,7 +206,7 @@ public:
     for (int iw = 0; iw < nw; ++iw)
       lu_events[iw]= syclSolver::getri(*m_queue,n,psiM_fp_.data()+iw*nsqr,lda, 
           pivots_.data()+lda*iw, m_work_.data()+iw*getri_ws, getrf_ws);
-    m_queue->wait(lu_events);
+    sycl::event::wait(lu_events);
 #endif
 
     for (int iw = 0; iw < nw; ++iw)
@@ -216,9 +215,10 @@ public:
           inv_a_mats[iw].get().device_data()).wait();
       inv_a_mats[iw].get().updateFrom(); 
     }
+    log_values.updateFrom();
 #endif
   }
 };
 } // namespace qmcplusplus
 
-#endif // QMCPLUSPLUS_DIRAC_MATRIX_COMPUTE_OMPTARGET_H
+#endif // QMCPLUSPLUS_DIRAC_MATRIX_COMPUTE_SCYL_H
