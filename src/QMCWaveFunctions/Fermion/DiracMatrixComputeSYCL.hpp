@@ -71,8 +71,7 @@ private:
   std::int64_t getri_ws=0;
   std::int64_t lwork_=0;
 
-  int current_batch=0;
-  std::vector<sycl::event> lu_events;
+  std::vector<sycl::event> batch_events;
 
   DeviceVector<VALUE_FP> psiM_fp_;
   DeviceVector<VALUE_FP> m_work_;  
@@ -82,7 +81,7 @@ private:
    */
   inline void reset(const int n, const int lda, const int batch_size)
   {
-    //consider in_order_queue and unique_ptr
+    //possible to use in_order_queue 
     if(m_queue==nullptr) m_queue=get_default_queue();
 
     const int nw = batch_size;
@@ -93,7 +92,8 @@ private:
     psiM_fp_.resize(nw*n*lda);
     m_work_.resize(nw*lwork_);
     pivots_.resize(nw*lda);
-    if(lu_events.size() < nw) lu_events.resize(nw);
+
+    batch_events.resize(nw);
   }
 
 public:
@@ -184,16 +184,16 @@ public:
     if(pivots_.size()<nw*lda) reset(n,lda,nw);
 
     for (int iw = 0; iw < nw; ++iw)
-      lu_events[iw] = syclBLAS::transpose(*m_queue, a_mats[iw].get().device_data(),n,lda, psiM_fp_.data()+iw*nsqr,n,ldb); 
+      batch_events[iw] = syclBLAS::transpose(*m_queue, a_mats[iw].get().device_data(),n,lda, psiM_fp_.data()+iw*nsqr,n,ldb); 
 
 #if MKL_BATCHED_INVERSE
     syclSolver::getrf_batch(*m_queue,n,n,psiM_fp_.data(),lda,nsqr,
-        pivots_data(), lda, batch_count, m_work_.data(),getrf_ws*nw,lu_events).wait();
+        pivots_data(), lda, batch_count, m_work_.data(),getrf_ws*nw,batch_events).wait();
 #else
     for (int iw = 0; iw < nw; ++iw)
-      lu_events[iw]= syclSolver::getrf(*m_queue,n,n,psiM_fp_.data()+iw*nsqr,lda, 
-          pivots_.data()+iw*lda, m_work_.data()+iw*getrf_ws, getrf_ws, {lu_events[iw]});
-    sycl::event::wait(lu_events);
+      batch_events[iw]= syclSolver::getrf(*m_queue,n,n,psiM_fp_.data()+iw*nsqr,lda, 
+          pivots_.data()+iw*lda, m_work_.data()+iw*getrf_ws, getrf_ws, {batch_events[iw]});
+    sycl::event::wait(batch_events);
 #endif
 
     computeLogDet_batched(*m_queue,n,lda,
@@ -204,9 +204,9 @@ public:
         pivots_data(), lda, batch_count, m_work_.data(),getri_ws*nw).wait();
 #else
     for (int iw = 0; iw < nw; ++iw)
-      lu_events[iw]= syclSolver::getri(*m_queue,n,psiM_fp_.data()+iw*nsqr,lda, 
+      batch_events[iw]= syclSolver::getri(*m_queue,n,psiM_fp_.data()+iw*nsqr,lda, 
           pivots_.data()+lda*iw, m_work_.data()+iw*getri_ws, getrf_ws);
-    sycl::event::wait(lu_events);
+    sycl::event::wait(batch_events);
 #endif
 
     for (int iw = 0; iw < nw; ++iw)
