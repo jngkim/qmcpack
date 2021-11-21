@@ -58,8 +58,8 @@ public:
   template<typename T>
   using OffloadPinnedVector = Vector<T, OffloadPinnedAllocator<T>>;
 
-  // maybe you'll want a resource someday, then change here.
-  using HandleResource = DummyResource;
+  //sycl::queue managed by MatrixDelayedUpdateSYCL
+  using HandleResource = sycl::queue;
 
 private:
 

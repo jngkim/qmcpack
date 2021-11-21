@@ -52,52 +52,52 @@ inline sycl::event gemv(sycl::queue&   handle,
   return oneapi::mkl::blas::gemv(handle, trans, m, n, alpha, A, lda, x, incx, beta, y,incy,events);
 }
 
-template<typename t>
+template<typename T>
 inline sycl::event gemv_batched(sycl::queue&   handle,
                     const oneapi::mkl::transpose trans,
-                    const syclblas_int  m,
-                    const syclblas_int  n,
-                    const t*            alpha,
-                    const t**           a,
-                    const syclblas_int  lda,
-                    const t**           x,
-                    const syclblas_int  incx,
-                    const t*            beta,
-                    t**                 y,
-                    const syclblas_int  incy,
-                    const syclblas_int  batch_count,
+                    const syclBLAS_int  m,
+                    const syclBLAS_int  n,
+                    const T*            alpha,
+                    const T**           a,
+                    const syclBLAS_int  lda,
+                    const T**           x,
+                    const syclBLAS_int  incx,
+                    const T*            beta,
+                    T**                 y,
+                    const syclBLAS_int  incy,
+                    const syclBLAS_int  batch_count,
                     const std::vector<sycl::event> &events = {})
 {
   //using group api: only one group
   return oneapi::mkl::blas::gemv_batch(handle, &trans, &m, &n, alpha, a, &lda,x,&incx, beta, y, &incy,1,&batch_count, events);
 }
 
-template<typename t>
-inline int gemv_batched(sycl::queue&   handle,
+template<typename T>
+inline int gemv_batched_alpha(sycl::queue&   handle,
                     const oneapi::mkl::transpose trans,
-                    const syclblas_int  m,
-                    const syclblas_int  n,
-                    const t*            alpha,
-                    const syclblas_int  nalphas, //extra argument (cheat)
-                    const t**           a,
-                    const syclblas_int  lda,
-                    const t**           x,
-                    const syclblas_int  incx,
-                    const t*            beta,
-                    t**                 y,
-                    const syclblas_int  incy,
-                    const syclblas_int  batch_count,
+                    const syclBLAS_int  m,
+                    const syclBLAS_int  n,
+                    const T*            alpha,
+                    const syclBLAS_int  nalphas, //extra argument (cheat)
+                    const T**           a,
+                    const syclBLAS_int  lda,
+                    const T**           x,
+                    const syclBLAS_int  incx,
+                    const T*            beta,
+                    T**                 y,
+                    const syclBLAS_int  incy,
+                    const syclBLAS_int  batch_count,
                     const std::vector<sycl::event> &events = {})
 {
   if(nalphas < batch_count) return 1;
-  handle.wait(events);
+  sycl::event::wait(events);
   std::vector<sycl::event> gemv_events(batch_count);
   for(int batch=0; batch<batch_count; batch++)
   {
     gemv_events[batch] = oneapi::mkl::blas::gemv(handle, trans, m, n,
                           alpha[batch], a[batch], lda, x[batch], incx, beta, y[batch],incy);
   }
-  handle.wait(gemv_events);
+  sycl::event::wait(gemv_events);
   return 0;
 }
 
@@ -334,6 +334,24 @@ inline sycl::event transpose_batched_strided(sycl::queue& q,
           });
     }
 
+
+  template <typename T1, typename T2>
+    inline sycl::event
+    copy(sycl::queue &aq, unsigned m, unsigned n,
+        const T1* restrict matA, int lda, T2* restrict matB, int ldb,
+        const size_t COLBS=16)
+    { //NO NEED 2D
+      const size_t m_max=((m+COLBS-1)/COLBS)*COLBS;
+      const size_t n_max=((n+COLBS-1)/COLBS)*COLBS;
+      return aq.parallel_for(
+          sycl::nd_range<2>{{m_max,n_max},{COLBS,COLBS}},
+          [=](sycl::nd_item<2> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+          unsigned i = item.get_global_id(0);
+          unsigned j = item.get_global_id(1);
+          if(i<n && j<m)
+            matB[j+i*ldb]=matA[j+i*lda];
+          });
+    }
 } // namespace 
 
 } // namespace qmcplusplus
