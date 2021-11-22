@@ -58,20 +58,22 @@ inline sycl::event gemv_batched(sycl::queue&   handle,
                     const syclBLAS_int  m,
                     const syclBLAS_int  n,
                     const T*            alpha,
-                    const T**           a,
+                    const T**           A,
                     const syclBLAS_int  lda,
-                    const T**           x,
+                    const T**           X,
                     const syclBLAS_int  incx,
                     const T*            beta,
-                    T**                 y,
+                    T**                 Y,
                     const syclBLAS_int  incy,
                     const syclBLAS_int  batch_count,
                     const std::vector<sycl::event> &events = {})
 {
   //using group api: only one group
-  return oneapi::mkl::blas::gemv_batch(handle, &trans, &m, &n, alpha, a, &lda,x,&incx, beta, y, &incy,1,&batch_count, events);
+  return oneapi::mkl::blas::gemv_batch(handle, &trans, &m, &n, alpha, A, &lda,
+      X,&incx, beta, Y, &incy,1,&batch_count, events);
 }
 
+/** special gemv_batched with multiple alpha values */
 template<typename T>
 inline int gemv_batched_alpha(sycl::queue&   handle,
                     const oneapi::mkl::transpose trans,
@@ -83,7 +85,7 @@ inline int gemv_batched_alpha(sycl::queue&   handle,
                     const syclBLAS_int  lda,
                     const T**           x,
                     const syclBLAS_int  incx,
-                    const T*            beta,
+                    const T             beta,
                     T**                 y,
                     const syclBLAS_int  incy,
                     const syclBLAS_int  batch_count,
@@ -103,7 +105,8 @@ inline int gemv_batched_alpha(sycl::queue&   handle,
 
 template<typename T>
 inline sycl::event gemm_batched(sycl::queue&   handle,
-                    const oneapi::mkl::transpose trans,
+                    const oneapi::mkl::transpose transA,
+                    const oneapi::mkl::transpose transB,
                     const syclBLAS_int  m,
                     const syclBLAS_int  n,
                     const syclBLAS_int  k,
@@ -119,7 +122,7 @@ inline sycl::event gemm_batched(sycl::queue&   handle,
                     const std::vector<sycl::event> &events = {})
 {
   //using group api: only one group
-  return oneapi::mkl::blas::gemm_batch(handle, &trans, &m, &n, &k, alpha, A, &lda, B,&ldb, beta, C, &ldc,1,&batch_count, events);
+  return oneapi::mkl::blas::gemm_batch(handle, &transA, &transB, &m, &n, &k, alpha, A, &lda, B,&ldb, beta, C, &ldc,1,&batch_count, events);
 }
 
 template<typename T>

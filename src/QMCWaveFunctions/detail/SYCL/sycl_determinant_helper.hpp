@@ -196,8 +196,12 @@ template<typename TMAT, typename T, typename Index_t>
 
   template<typename T, typename Index_t>
   inline sycl::event 
-  applyW_batched(sycl::queue& aq, T** restrict UV ,const int norb, 
-                 const Index_t** restrict delay_list, const int delay_count, const size_t batch_count)
+  applyW_batched(sycl::queue& aq, 
+                 const Index_t** restrict delay_list,
+                 const int norb, 
+                 T** restrict UV,
+                 const int delay_count, 
+                 const size_t batch_count)
   {
     constexpr T mone(-1);
 
@@ -213,8 +217,8 @@ template<typename TMAT, typename T, typename Index_t>
         });
   }
 
-template<typename T, size_t COLBS>
-inline void copyAinvRow_saveGL(sycl::queue& aq,
+template<typename T>
+inline sycl::event copyAinvRow_saveGL(sycl::queue& aq,
                                const int rowchanged,
                                const int n,
                                const T* const Ainv[],
@@ -225,7 +229,8 @@ inline void copyAinvRow_saveGL(sycl::queue& aq,
                                const T* const d2phi_in[],
                                T* const dphi_out[],
                                T* const d2phi_out[],
-                               const size_t batch_count)
+                               const size_t batch_count,
+                               const size_t COLBS=128)
 {
   return aq.parallel_for(sycl::nd_range<1>{{batch_count*COLBS},{COLBS}}, 
       [=](sycl::nd_item<1> item) {
@@ -261,13 +266,14 @@ inline void copyAinvRow_saveGL(sycl::queue& aq,
       });
 }
 
-template<typename T, size_t COLBS, unsigned DIM=3>
+template<typename T, unsigned DIM=3>
 inline sycl::event calcGradients(sycl::queue& aq,
                                  const int n,
                                  const T* const Ainvrow[],
                                  const T* const dpsiMrow[],
                                  T* const grads_now,
-                                 size_t batch_count)
+                                 size_t batch_count,
+                                 const size_t COLBS=128)
 {
   //translation of calcGradients_cuda+calcGradients_kernel
   return aq.submit([&](sycl::handler& cgh) {
@@ -308,7 +314,7 @@ inline sycl::event calcGradients(sycl::queue& aq,
   });
 }
 
-template<typename T, size_t COLBS>
+template<typename T>
 sycl::event add_delay_list_save_sigma_VGL(sycl::queue& aq,
                                           int* const delay_list[],
                                           const int rowchanged,
@@ -324,7 +330,8 @@ sycl::event add_delay_list_save_sigma_VGL(sycl::queue& aq,
                                           T* const d2phi_out[],
                                           const int norb,
                                           const int n_accepted,
-                                          const size_t batch_count) 
+                                          const size_t batch_count,
+                                          const size_t COLBS=64) 
 {
   return aq.parallel_for(sycl::nd_range<1>{{batch_count*COLBS},{COLBS}}, 
       [=](sycl::nd_item<1> item) {

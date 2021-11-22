@@ -251,6 +251,23 @@ bool operator!=(const SYCLHostAllocator<T1>&, const SYCLHostAllocator<T2>&)
   return false;
 }
 
+template<typename T>
+struct qmc_allocator_traits<qmcplusplus::SYCLHostAllocator<T>>
+{
+  static const bool is_host_accessible = true;
+  static const bool is_dual_space      = true;
+
+  static void fill_n(T* ptr, size_t n, const T& value) { }
+
+  static void updateTo(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
+  { }
+
+  static void updateFrom(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
+  { }
+
+};
+
+
 #if 0
 /** allocator locks memory pages allocated by ULPHA
  * @tparm T data type
