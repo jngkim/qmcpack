@@ -48,7 +48,7 @@ public:
   using This_t        = MatrixDelayedUpdateSYCL<VALUE, VALUE_FP>;
   using DetInverter   = DiracMatrixComputeSYCL<FullPrecValue>;
 
-  //use the same allocator as DetInverter,
+  //use the same allocator as DetInverter
   template<typename DT>
   using PinnedDualAllocator = typename DetInverter::template OffloadPinnedAllocator<DT>;
   template<typename DT>
@@ -56,14 +56,12 @@ public:
   template<typename DT>
   using DualMatrix = Matrix<DT, PinnedDualAllocator<DT>>;
 
-  //Use m_queue->memcpy to manage asynchronous copies
-  template<typename DT>
-  using DevicelAllocator = SYCLAllocator<DT>;
+  //DeviceVector 
   template<typename DT>
   using DeviceVector = Vector<DT, SYCLAllocator<DT>>;
+  //DeviceMatrix 
   template<typename DT>
   using DeviceMatrix = Matrix<DT, SYCLAllocator<DT>>;
-
   template<typename DT>
   using PinnedHostVector = Vector<DT, SYCLHostAllocator<DT>>;
 
@@ -81,14 +79,12 @@ public:
     // mw_updateInv pointer buffer
     PinnedHostVector<Value*> updateInv_buffer_H2D;
     // mw_evalGrad pointer buffer
-    //DualVector<Value*> evalGrad_buffer_H2D;
-    //Vector<Value*,SYCLHostAllocator<Value*>> evalGrad_buffer_H2D;
     PinnedHostVector<Value*> evalGrad_buffer_H2D; 
     /// scratch space for rank-1 update
     DeviceVector<Value> mw_temp;
     // scratch space for keeping one row of Ainv
     DeviceVector<Value> mw_rcopy;
-    // ratios for ger
+    // ratios 
     PinnedHostVector<Value> mw_ratio;
 
     MatrixDelayedUpdateSYCLMultiWalkerMem() : Resource("MatrixDelayedUpdateSYCLMultiWalkerMem") {}
@@ -104,7 +100,7 @@ public:
   DualMatrix<Value>& get_ref_psiMinv() { return psiMinv_; }
 
 private:
-  /// legacy single walker matrix inversion engine
+  /// inverter
   DiracMatrixComputeSYCL<FullPrecValue> detEng;
   /* inverse transpose of psiM(j,i) \f$= \psi_j({\bf r}_i)\f$
    * Only NumOrbitals x NumOrbitals subblock has meaningful data
@@ -299,8 +295,8 @@ private:
 
     mw_temp.resize(norb * n_accepted);
     mw_rcopy.resize(norb * n_accepted);
-    updateRow_buffer_H2D.resize(8 * n_accepted);
 
+    updateRow_buffer_H2D.resize(8 * n_accepted);
     // to handle T** of Ainv, psi_v, temp, rcopy
     Matrix<Value*> ptr_buffer(updateRow_buffer_H2D.data(), 8, n_accepted);
     // ratios are special
@@ -444,6 +440,8 @@ public:
    *
    *  Forced to use OpenMP target since resources are banned for single walker functions APIs
    *  and the acquireRelease pattern for a single DDB was removed by #3324
+   *
+   *  TESTED
    */
   template<typename VVT>
   void updateRow(int rowchanged, const VVT& phiV, FullPrecValue c_ratio_in)
@@ -453,28 +451,25 @@ public:
     const int norb = Ainv.rows();
     const int lda  = Ainv.cols();
 
-    if (phiV_temp.size() < norb)
-    {//all device Vectors
-      phiV_temp.resize(norb);
-      temp.resize(norb);
-      rcopy.resize(norb);
+    if(m_queue==nullptr) m_queue=get_default_queue();
+
+    if (temp.size() < lda)
+    {
+      temp.resize(lda);
+      rcopy.resize(lda);
     }
 
-    //Not sure what phiV's allocator is, can bypass this
-    //
-    Value* phiV_ptr  = phiV_temp.data();
     Value* Ainv_ptr  = Ainv.device_data();
     Value* temp_ptr  = temp.data();
     Value* rcopy_ptr = rcopy.data();
 
-    //Assume phiV is on the host
-    sycl::event e = m_queue->memcpy(phiV_ptr, phiV.data(), phiV.size()); 
+    sycl::event e=m_queue->memcpy(rcopy_ptr,phiV.data(),sizeof(Value)*norb);
 
     // update the inverse matrix
     constexpr Value cone(1), czero(0);
 
     syclBLAS::gemv(*m_queue, oneapi::mkl::transpose::trans, norb, norb, 
-                   cone, Ainv_ptr, lda, phiV_ptr, 1, czero, temp_ptr, 1, {e}).wait();
+                   cone, Ainv_ptr, lda, rcopy_ptr, 1, czero, temp_ptr, 1,{e}).wait();
 
     m_queue->parallel_for(sycl::range<1>{size_t(norb)}, 
         [=](sycl::id<1> tid) 
@@ -487,7 +482,6 @@ public:
                   Ainv_ptr, lda);
     
     Ainv.updateFrom();
-
   }
 
   /** Accept or Reject row updates
