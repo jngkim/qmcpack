@@ -49,13 +49,14 @@ TEST_CASE("DiracMatrixComputeSYCL_different_batch_sizes", "[wavefunction][fermio
   inv_mat_a.resize(4, 4);
   DiracMatrixComputeSYCL<double> dmc_sycl;
 
-  DummyResource dummy;
+  sycl::queue *m_queue=get_default_queue();
+  //DummyResource dummy;
   std::complex<double> log_value;
 
   //only addition to test_DiracMatrixComputeOMPTarget.cpp 
   mat_a.updateTo(); 
 
-  dmc_sycl.invert_transpose(dummy, mat_a, inv_mat_a, log_value);
+  dmc_sycl.invert_transpose(*m_queue, mat_a, inv_mat_a, log_value);
   CHECK(log_value == LogComplexApprox(std::complex<double>{5.267858159063328, 6.283185307179586}));
 
   OffloadPinnedMatrix<double> mat_b;
@@ -81,8 +82,7 @@ TEST_CASE("DiracMatrixComputeSYCL_different_batch_sizes", "[wavefunction][fermio
   RefVector<OffloadPinnedMatrix<double>> inv_a_mats{inv_mat_a, inv_mat_a2};
 
   log_values.resize(2);
-  DummyResource dummy_res;
-  dmc_sycl.mw_invertTranspose(dummy_res, a_mats, inv_a_mats, log_values);
+  dmc_sycl.mw_invertTranspose(*m_queue, a_mats, inv_a_mats, log_values);
 
   check_matrix_result = checkMatrix(inv_mat_a, mat_b);
   CHECKED_ELSE(check_matrix_result.result) { FAIL(check_matrix_result.result_message); }
@@ -109,7 +109,7 @@ TEST_CASE("DiracMatrixComputeSYCL_different_batch_sizes", "[wavefunction][fermio
   RefVector<OffloadPinnedMatrix<double>> inv_a_mats3{inv_mat_a, inv_mat_a2, inv_mat_a3};
 
   log_values.resize(3);
-  dmc_sycl.mw_invertTranspose(dummy_res, a_mats3, inv_a_mats3, log_values);
+  dmc_sycl.mw_invertTranspose(*m_queue, a_mats3, inv_a_mats3, log_values);
 
   check_matrix_result = checkMatrix(inv_mat_a, mat_b);
   CHECKED_ELSE(check_matrix_result.result) { FAIL(check_matrix_result.result_message); }
@@ -165,8 +165,8 @@ TEST_CASE("DiracMatrixComputeSYCL_large_determinants_against_legacy", "[wavefunc
   RefVector<const OffloadPinnedMatrix<double>> a_mats{mat_a, mat_a2};
   RefVector<OffloadPinnedMatrix<double>> inv_a_mats{inv_mat_a, inv_mat_a2};
 
-  DummyResource dummy_res;
-  dmc_sycl.mw_invertTranspose(dummy_res, a_mats, inv_a_mats, log_values);
+  sycl::queue *m_queue=get_default_queue();
+  dmc_sycl.mw_invertTranspose(*m_queue, a_mats, inv_a_mats, log_values);
 
   DiracMatrix<double> dmat;
   Matrix<double> inv_mat_test(n, n);

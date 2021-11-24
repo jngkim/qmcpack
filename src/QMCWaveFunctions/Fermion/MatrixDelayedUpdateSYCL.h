@@ -64,6 +64,8 @@ public:
   using DeviceMatrix = Matrix<DT, SYCLAllocator<DT>>;
   template<typename DT>
   using PinnedHostVector = Vector<DT, SYCLHostAllocator<DT>>;
+  template<typename DT>
+  using PinnedHostMatrix = Matrix<DT, SYCLHostAllocator<DT>>;
 
   struct MatrixDelayedUpdateSYCLMultiWalkerMem : public Resource
   {
@@ -73,7 +75,9 @@ public:
     // mw_updateRow pointer buffer
     PinnedHostVector<Value*> updateRow_buffer_H2D;
     // mw_prepareInvRow pointer buffer
-    PinnedHostVector<Value*> prepare_inv_row_buffer_H2D;
+    PinnedHostMatrix<Value*> prepare_inv_row_buffer_H2D;
+    // mw_prepareInvRow pointer buffer
+    PinnedHostMatrix<const Value*> prepare_inv_row_buffer_H2D_C;
     // mw_accept_rejectRow pointer buffer
     PinnedHostVector<Value*> accept_rejectRow_buffer_H2D;
     // mw_updateInv pointer buffer
@@ -154,6 +158,12 @@ private:
     //m_event.wait();
   }
 
+  inline sycl::queue* get_queue() 
+  {
+    if(m_queue==nullptr) m_queue=get_default_queue();
+    return m_queue;
+  }
+
   /** ensure no previous delay left.
    *  This looks like it should be an assert
    */
@@ -174,54 +184,48 @@ private:
   static void mw_prepareInvRow(const RefVectorWithLeader<This_t>& engines, const int rowchanged)
   {
     auto& engine_leader              = engines.getLeader();
-    auto& prepare_inv_row_buffer_H2D = engine_leader.mw_mem_->prepare_inv_row_buffer_H2D;
+    auto& ptr_buffer                 = engine_leader.mw_mem_->prepare_inv_row_buffer_H2D; 
+    auto& cptr_buffer                = engine_leader.mw_mem_->prepare_inv_row_buffer_H2D_C;
     const int norb                   = engine_leader.get_psiMinv().rows();
     const int nw                     = engines.size();
     int& delay_count                 = engine_leader.delay_count;
-    const int lda_Binv = engine_leader.Binv_gpu.cols();
+    const int lda_Binv               = engine_leader.Binv_gpu.cols();
 
-    sycl::queue& lead_q(*(engine_leader.m_queue));
+    sycl::queue& lead_q(*engine_leader.get_queue()); 
     std::vector<sycl::event> events(nw);
 
-    //simplify template deductions
-    PinnedHostVector<const Value*> U_mw_c(nw);
-    PinnedHostVector<const Value*> V_mw_c(nw);
+    enum {C_old=0, C_invRow, C_p, C_Binv, C_BinvRow, C_U, C_V, C_MAX};
 
-    PinnedHostVector<const Value*> invRow_mw_c(nw);
-    PinnedHostVector<const Value*> p_mw_c(nw);       
-    PinnedHostVector<const Value*> Binv_mw_c(nw);    
-    PinnedHostVector<const Value*> BinvRow_mw_c(nw); 
-
-    prepare_inv_row_buffer_H2D.resize(5 * nw);
-    Matrix<Value*> ptr_buffer(prepare_inv_row_buffer_H2D.data(), 5, nw);
+    ptr_buffer.resize(C_MAX,nw);
+    cptr_buffer.resize(C_MAX,nw);
 
     for (int iw = 0; iw < nw; iw++)
     {
       This_t& engine    = engines[iw];
       auto& psiMinv     = engine.get_ref_psiMinv();
 
-      ptr_buffer[0][iw] = psiMinv.device_data() + rowchanged * psiMinv.cols();
-      ptr_buffer[1][iw] = engine.invRow.device_data();
-      ptr_buffer[2][iw] = engine.p_gpu.data();
-      ptr_buffer[3][iw] = engine.Binv_gpu.data();
-      ptr_buffer[4][iw] = engine.Binv_gpu.data() + delay_count * lda_Binv;
+      //const Value*
+      cptr_buffer[C_old    ][iw] = psiMinv.device_data() + rowchanged * psiMinv.cols();
+      cptr_buffer[C_invRow ][iw] = engine.invRow.device_data();
+      cptr_buffer[C_p      ][iw] = engine.p_gpu.data();
+      cptr_buffer[C_Binv   ][iw] = engine.Binv_gpu.data();
+      cptr_buffer[C_BinvRow][iw] = engine.Binv_gpu.data() + delay_count * lda_Binv;
+      cptr_buffer[C_U][iw]       = engine.U_gpu.data();       
+      cptr_buffer[C_V][iw]       = engine.V_gpu.data();
 
-      invRow_mw_c[iw]  = engine.invRow.device_data();
-      p_mw_c[iw]       = engine.p_gpu.data();
-      Binv_mw_c[iw]    = engine.Binv_gpu.data();
-      BinvRow_mw_c[iw] = engine.Binv_gpu.data() + delay_count * lda_Binv;
-
-      U_mw_c[iw]       = engine.U_gpu.data();       
-      V_mw_c[iw]       = engine.V_gpu.data();
+      //ptr_buffer [C_old    ][iw] = psiMinv.device_data() + rowchanged * psiMinv.cols();
+      ptr_buffer [C_invRow ][iw] = engine.invRow.device_data();
+      ptr_buffer [C_p      ][iw] = engine.p_gpu.data();
+      ptr_buffer [C_Binv   ][iw] = engine.Binv_gpu.data();
+      ptr_buffer [C_BinvRow][iw] = engine.Binv_gpu.data() + delay_count * lda_Binv;
     }
 
-    { //copy rows: move to the loop and remove oldRow_mw_ptr
+    { 
       const size_t nbytes = norb * sizeof(Value);
-      Value** oldRow_mw_ptr  = prepare_inv_row_buffer_H2D.data();
-      Value** invRow_mw_ptr  = prepare_inv_row_buffer_H2D.data() + nw;
-      //copy rows
       for (int iw = 0; iw < nw; ++iw)
-        events[iw] = lead_q.memcpy(invRow_mw_ptr[iw], oldRow_mw_ptr[iw], nbytes);
+      {
+        events[iw] = lead_q.memcpy(ptr_buffer[C_invRow][iw], cptr_buffer[C_old][iw], nbytes);
+      }
     }
 
     constexpr auto trans    = oneapi::mkl::transpose::trans;
@@ -232,21 +236,16 @@ private:
     constexpr Value cminusone(-1);
     constexpr Value czero{};
 
-    Value** invRow_mw_ptr  = prepare_inv_row_buffer_H2D.data() + nw;
-    Value** p_mw_ptr       = prepare_inv_row_buffer_H2D.data() + nw * 2;
-    Value** Binv_mw_ptr    = prepare_inv_row_buffer_H2D.data() + nw * 3;
-    Value** BinvRow_mw_ptr = prepare_inv_row_buffer_H2D.data() + nw * 4;
-
     // multiply V (NxK) Binv(KxK) U(KxN) invRow right to the left
     //BLAS::gemv('T', norb, delay_count, cone, U_gpu.data(), norb, invRow.data(), 1, czero, p_gpu.data(), 1);
-    auto e = syclBLAS::gemv_batched(lead_q, trans, norb, delay_count, &cone,
-        U_mw_c.data(), norb, invRow_mw_c.data(), 1, &czero, p_mw_ptr, 1, nw, events);
+    auto e = syclBLAS::gemv_batched(lead_q, trans, norb, delay_count, &cone, cptr_buffer[C_U], norb, 
+                                    cptr_buffer[C_invRow], 1, &czero, ptr_buffer[C_p], 1, nw, events);
     //BLAS::gemv('N', delay_count, delay_count, -cone, Binv.data(), lda_Binv, p.data(), 1, czero, Binv[delay_count], 1);
-    e = syclBLAS::gemv_batched(lead_q, nontrans, delay_count, delay_count, &cminusone, 
-        Binv_mw_c.data(), lda_Binv, p_mw_c.data(), 1, &czero, BinvRow_mw_ptr, 1, nw, {e});
+    e = syclBLAS::gemv_batched(lead_q, nontrans, delay_count, delay_count, &cminusone, cptr_buffer[C_Binv], lda_Binv, 
+                               cptr_buffer[C_p], 1, &czero, ptr_buffer[C_BinvRow], 1, nw, {e});
     //BLAS::gemv('N', norb, delay_count, cone, V.data(), norb, Binv[delay_count], 1, cone, invRow.data(), 1);
-    syclBLAS::gemv_batched(lead_q, nontrans, norb, delay_count, &cone,
-        V_mw_c.data(), norb, BinvRow_mw_c.data(), 1, &cone, invRow_mw_ptr, 1, nw, {e}).wait();
+    syclBLAS::gemv_batched(lead_q, nontrans, norb, delay_count, &cone, cptr_buffer[C_V], norb, 
+                           cptr_buffer[C_BinvRow], 1, &cone, ptr_buffer[C_invRow], 1, nw, {e}).wait();
     //complete gemv's 
     engine_leader.invRow_id = rowchanged;
   }
@@ -372,11 +371,20 @@ public:
     psiMinv_.resize(norb, getAlignedSize<Value>(norb));
   }
 
-  void createResource(ResourceCollection& collection) const {}
+  void createResource(ResourceCollection& collection) const 
+  {
+    collection.addResource(std::make_unique<MatrixDelayedUpdateSYCLMultiWalkerMem>());
+  }
 
-  void acquireResource(ResourceCollection& collection) {}
+  void acquireResource(ResourceCollection& collection) {
+    auto res_ptr = dynamic_cast<MatrixDelayedUpdateSYCLMultiWalkerMem*>(collection.lendResource().release());
+    if (!res_ptr)
+      throw std::runtime_error(
+          "MatrixUpdateOMPTarget::acquireResource dynamic_cast MatrixUpdateOMPTargetMultiWalkerMem failed");
+    mw_mem_.reset(res_ptr);
+  }
 
-  void releaseResource(ResourceCollection& collection) {}
+  void releaseResource(ResourceCollection& collection) { collection.takebackResource(std::move(mw_mem_)); }
 
   inline void checkResourcesForTest() {}
 
@@ -766,7 +774,7 @@ public:
     const size_t nw    = engines.size();
     std::vector<const Value*> row_ptr_list;
     row_ptr_list.reserve(nw);
-    if (on_host)
+    if (on_host) //THIS IS CALLED, HOW TO SET THIS???
     {
       // copy values to host and return host pointer
       for (This_t& engine : engines)
