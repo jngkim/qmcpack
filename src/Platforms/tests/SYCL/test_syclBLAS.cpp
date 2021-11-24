@@ -299,7 +299,7 @@ TEST_CASE("OmpSYCL gemv", "[SYCL]")
 }
 
 template<typename T, typename Alloc>
-void test_ger(const int M, const int N)
+void test_ger(const int M, const int N, const int incx, const int incy)
 {
 
   using vec_t = Vector<T, Alloc>;
@@ -307,16 +307,16 @@ void test_ger(const int M, const int N)
 
   sycl::queue *handle=get_default_queue();
 
-  vec_t X(N);        // Input vector
-  vec_t Y(M);        // Input vector
+  vec_t X(N*incx);        // Input vector
+  vec_t Y(M*incy);        // Input vector
   mat_t C(M, N); // output matrix X^Y
   mat_t D(M, N); // output matrix
 
   // Fill data
   for (int i = 0; i < N; i++)
-    X[i] = i;
+    X[i*incx] = i;
   for (int i = 0; i < M; i++)
-    Y[i] = M-i;
+    Y[i*incy] = M-i;
 
   for (int j = 0; j < M; j++)
     for (int i = 0; i < N; i++)
@@ -327,9 +327,9 @@ void test_ger(const int M, const int N)
   C.updateTo();
 
   T alpha(1);
-  syclBLAS::ger(*handle, M, M, alpha, X.device_data(), 1, Y.device_data(), 1, C.device_data(),M).wait();
+  syclBLAS::ger(*handle, M, M, alpha, X.device_data(), incx, Y.device_data(), incy, C.device_data(),M).wait();
 
-  BLAS::ger(M, M, alpha, X.data(), 1, Y.data(), 1, D.data(),M);
+  BLAS::ger(M, M, alpha, X.data(), incx, Y.data(), incy, D.data(),M);
 
   C.updateFrom();
 
@@ -339,7 +339,7 @@ void test_ger(const int M, const int N)
 }
 
 template<typename T>
-void test_ger_batched(const int M, const int N, const int batch_count)
+void test_ger_batched(const int M, const int N, const int incx, const int incy, const int batch_count)
 {
   using vec_t = Vector<T, OMPallocator<T>>;
   using mat_t = Matrix<T, OMPallocator<T>>;
@@ -378,10 +378,10 @@ void test_ger_batched(const int M, const int N, const int batch_count)
   for (int batch = 0; batch < batch_count; batch++)
   {
 
-    As[batch].resize(N);
+    As[batch].resize(N*incx);
     Aptrs[batch] = As[batch].device_data();
 
-    Bs[batch].resize(M);
+    Bs[batch].resize(M*incy);
     Bptrs[batch] = Bs[batch].device_data();
 
     Cs[batch].resize(M,N);
@@ -391,9 +391,9 @@ void test_ger_batched(const int M, const int N, const int batch_count)
     Dptrs[batch] = Ds[batch].data();
 
     for (int i = 0; i < M; i++)
-      As[batch][i] = i;
+      As[batch][i*incx] = i;
     for (int i = 0; i < N; i++)
-      Bs[batch][i] = N-i;
+      Bs[batch][i*incy] = N-i;
 
     for (int j = 0; j < M; j++)
       for (int i = 0; i < N; i++)
@@ -414,13 +414,13 @@ void test_ger_batched(const int M, const int N, const int batch_count)
     alpha[i]=1;
 
   syclBLAS::ger_batched(*handle, M, N,
-      alpha.data(), Aptrs.device_data(), 1, Bptrs.device_data(), 1, Cptrs.device_data(), N, batch_count).wait();
+      alpha.data(), Aptrs.device_data(), incx, Bptrs.device_data(), incy, Cptrs.device_data(), N, batch_count).wait();
 
   for (int batch = 0; batch < batch_count; batch++)
   {
     Cs[batch].updateFrom();
 
-    BLAS::ger(M, M, alpha[batch], As[batch].data(), 1, Bs[batch].data(), 1, Ds[batch].data(),M);
+    BLAS::ger(M, M, alpha[batch], As[batch].data(), incx, Bs[batch].data(), incy, Ds[batch].data(),M);
 
     for (int j = 0; j < M; j++)
       for (int i = 0; i < N; i++)
@@ -436,15 +436,20 @@ TEST_CASE("OmpSYCL ger", "[SYCL]")
 
   // Non-batched test
   std::cout << "Testing ger" << std::endl;
-  test_ger<float,OMPallocator<float>>(M, N);
-  test_ger<double,OMPallocator<double>>(M, N);
-  test_ger<std::complex<float>, OMPallocator<std::complex<float>>>(N, M);
-  test_ger<std::complex<double>,OMPallocator<std::complex<double>>>(N, M);
+  test_ger<float,OMPallocator<float>>(M, N, 1, 1);
+  test_ger<double,OMPallocator<double>>(M, N, 1, 1);
+  test_ger<std::complex<float>, OMPallocator<std::complex<float>>>(N, M, 1, 1);
+  test_ger<std::complex<double>,OMPallocator<std::complex<double>>>(N, M, 1, 1);
+
+  test_ger<float,OMPallocator<float>>(M, N, 13, 1);
+  test_ger<float,OMPallocator<float>>(M, N, 1, 13);
 
   std::cout << "Testing ger_batched" << std::endl;
-  test_ger_batched<float>(M, N,batch_count);
-  test_ger_batched<double>(M, N,batch_count);
-  test_ger_batched<std::complex<float>>(M, N,batch_count);
-  test_ger_batched<std::complex<double>>(M, N,batch_count);
+  test_ger_batched<float>(M, N, 1, 1, batch_count);
+  test_ger_batched<double>(M, N, 1, 1, batch_count);
+  test_ger_batched<std::complex<float>>(M, N, 1, 1, batch_count);
+  test_ger_batched<std::complex<double>>(M, N, 1, 1, batch_count);
+
+  test_ger_batched<float>(M, N, 1, 13, batch_count);
 }
 } // namespace qmcplusplus

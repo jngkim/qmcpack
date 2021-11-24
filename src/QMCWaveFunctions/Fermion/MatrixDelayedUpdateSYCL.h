@@ -71,17 +71,19 @@ public:
   {
     // multi walker of grads for transfer needs. 
     DualMatrix<Value> grads_value_v;
-    //potentially better to use SYCLHostAllocator
+    //Two containers for each buffer required due to MKL APIs
     // mw_updateRow pointer buffer
-    PinnedHostVector<Value*> updateRow_buffer_H2D;
+    PinnedHostMatrix<Value*> updateRow_buffer_H2D;
+    PinnedHostMatrix<const Value*> updateRow_buffer_H2D_C;
     // mw_prepareInvRow pointer buffer
     PinnedHostMatrix<Value*> prepare_inv_row_buffer_H2D;
-    // mw_prepareInvRow pointer buffer
     PinnedHostMatrix<const Value*> prepare_inv_row_buffer_H2D_C;
     // mw_accept_rejectRow pointer buffer
-    PinnedHostVector<Value*> accept_rejectRow_buffer_H2D;
+    PinnedHostMatrix<Value*> accept_rejectRow_buffer_H2D;
+    PinnedHostMatrix<const Value*> accept_rejectRow_buffer_H2D_C;
     // mw_updateInv pointer buffer
-    PinnedHostVector<Value*> updateInv_buffer_H2D;
+    PinnedHostMatrix<Value*> updateInv_buffer_H2D;
+    PinnedHostMatrix<const Value*> updateInv_buffer_H2D_C;
     // mw_evalGrad pointer buffer
     PinnedHostVector<Value*> evalGrad_buffer_H2D; 
     /// scratch space for rank-1 update
@@ -90,6 +92,8 @@ public:
     DeviceVector<Value> mw_rcopy;
     // ratios 
     PinnedHostVector<Value> mw_ratio;
+    // delay list: Need to analyze the performance impact as it is modified on a device
+    PinnedHostVector<int*> mw_delay_list;
 
     MatrixDelayedUpdateSYCLMultiWalkerMem() : Resource("MatrixDelayedUpdateSYCLMultiWalkerMem") {}
 
@@ -124,9 +128,6 @@ private:
   int invRow_id;
   // scratch space for keeping one row of Ainv
   DeviceVector<Value> rcopy;
-  // scratch space for phiV
-  DeviceVector<Value> phiV_temp;
-
   /// orbital values of delayed electrons
   DeviceMatrix<Value> U_gpu;
   /// rows of Ainv corresponding to delayed electrons
@@ -194,10 +195,10 @@ private:
     sycl::queue& lead_q(*engine_leader.get_queue()); 
     std::vector<sycl::event> events(nw);
 
-    enum {C_old=0, C_invRow, C_p, C_Binv, C_BinvRow, C_U, C_V, C_MAX};
+    enum {C_invRow=0, C_p=1, C_Binv=2, C_BinvRow=3, C_U=4, C_V=5, C_old=6};  
 
-    ptr_buffer.resize(C_MAX,nw);
-    cptr_buffer.resize(C_MAX,nw);
+    ptr_buffer.resize(4,nw);
+    cptr_buffer.resize(7,nw);
 
     for (int iw = 0; iw < nw; iw++)
     {
@@ -205,15 +206,14 @@ private:
       auto& psiMinv     = engine.get_ref_psiMinv();
 
       //const Value*
-      cptr_buffer[C_old    ][iw] = psiMinv.device_data() + rowchanged * psiMinv.cols();
       cptr_buffer[C_invRow ][iw] = engine.invRow.device_data();
       cptr_buffer[C_p      ][iw] = engine.p_gpu.data();
       cptr_buffer[C_Binv   ][iw] = engine.Binv_gpu.data();
       cptr_buffer[C_BinvRow][iw] = engine.Binv_gpu.data() + delay_count * lda_Binv;
-      cptr_buffer[C_U][iw]       = engine.U_gpu.data();       
-      cptr_buffer[C_V][iw]       = engine.V_gpu.data();
+      cptr_buffer[C_U      ][iw] = engine.U_gpu.data();       
+      cptr_buffer[C_V      ][iw] = engine.V_gpu.data();
+      cptr_buffer[C_old    ][iw] = psiMinv.device_data() + rowchanged * psiMinv.cols();
 
-      //ptr_buffer [C_old    ][iw] = psiMinv.device_data() + rowchanged * psiMinv.cols();
       ptr_buffer [C_invRow ][iw] = engine.invRow.device_data();
       ptr_buffer [C_p      ][iw] = engine.p_gpu.data();
       ptr_buffer [C_Binv   ][iw] = engine.Binv_gpu.data();
@@ -286,67 +286,61 @@ private:
     if (n_accepted == 0)
       return;
 
-    auto& updateRow_buffer_H2D = engine_leader.mw_mem_->updateRow_buffer_H2D;
-    auto& mw_temp              = engine_leader.mw_mem_->mw_temp;
-    auto& mw_rcopy             = engine_leader.mw_mem_->mw_rcopy;
-    const int norb             = engine_leader.get_ref_psiMinv().rows();
-    const int lda              = engine_leader.get_ref_psiMinv().cols();
+    auto& ptr_buffer = engine_leader.mw_mem_->updateRow_buffer_H2D;
+    auto& cptr_buffer = engine_leader.mw_mem_->updateRow_buffer_H2D_C;
+    auto& mw_temp    = engine_leader.mw_mem_->mw_temp;
+    auto& mw_rcopy   = engine_leader.mw_mem_->mw_rcopy;
+    const int norb   = engine_leader.get_ref_psiMinv().rows();
+    const int lda    = engine_leader.get_ref_psiMinv().cols();
 
     mw_temp.resize(norb * n_accepted);
     mw_rcopy.resize(norb * n_accepted);
 
-    updateRow_buffer_H2D.resize(8 * n_accepted);
-    // to handle T** of Ainv, psi_v, temp, rcopy
-    Matrix<Value*> ptr_buffer(updateRow_buffer_H2D.data(), 8, n_accepted);
-    // ratios are special
-    auto& c_ratio_inv = engine_leader.mw_mem_->mw_ratio;
+    constexpr unsigned C_Ainv   = 0;
+    constexpr unsigned C_dpsiM  = 1;
+    constexpr unsigned C_d2psiM = 2;
+    constexpr unsigned C_temp   = 3; //used only for Value*
+    constexpr unsigned C_rcopy  = 4;
+    constexpr unsigned C_phiV   = 3; //used only for const Value*
 
-    PinnedHostVector<const Value*> Ainv_mw_c(n_accepted);
-    PinnedHostVector<const Value*> phiV_mw_c(n_accepted);
+    ptr_buffer.resize(5,n_accepted);
+    cptr_buffer.resize(4,n_accepted);
+
+    auto& c_ratio_inv = engine_leader.mw_mem_->mw_ratio;
 
     for (int iw = 0, count = 0; iw < isAccepted.size(); iw++)
       if (isAccepted[iw])
       {
-        ptr_buffer[0][count] = engines[iw].get_ref_psiMinv().device_data();
-        Ainv_mw_c[count] = engines[iw].get_ref_psiMinv().device_data();
-        ptr_buffer[1][count] = const_cast<Value*>(phi_vgl_v_dev_ptr + norb * iw);
-        phiV_mw_c[count] = phi_vgl_v_dev_ptr + norb * iw;
+        ptr_buffer[C_Ainv][count]    = engines[iw].get_ref_psiMinv().device_data();
+        ptr_buffer[C_dpsiM][count]   = psiM_g_list[count];
+        ptr_buffer[C_d2psiM][count]  = psiM_l_list[count];
+        ptr_buffer[C_temp][count]    = mw_temp.data() + norb * count;
+        ptr_buffer[C_rcopy][count]   = mw_rcopy.data() + norb * count;
 
-        ptr_buffer[2][count] = mw_temp.data() + norb * count;
-        ptr_buffer[3][count] = mw_rcopy.data() + norb * count;
-        ptr_buffer[4][count] = psiM_g_list[count];
-        ptr_buffer[5][count] = psiM_l_list[count];
-        ptr_buffer[6][count] = const_cast<Value*>(phi_vgl_v_dev_ptr + phi_vgl_stride + norb * 3 * iw);
-        ptr_buffer[7][count] = const_cast<Value*>(phi_vgl_v_dev_ptr + phi_vgl_stride * 4 + norb * iw);
+        cptr_buffer[C_Ainv][count]   = engines[iw].get_ref_psiMinv().device_data();
+        cptr_buffer[C_phiV][count]   = phi_vgl_v_dev_ptr + norb * iw;
+        cptr_buffer[C_dpsiM][count]  = phi_vgl_v_dev_ptr + phi_vgl_stride + norb * 3 * iw;
+        cptr_buffer[C_d2psiM][count] = phi_vgl_v_dev_ptr + phi_vgl_stride * 4 + norb * iw;
 
         c_ratio_inv[count] = Value(-1) / ratios[iw];
         count++;
       }
 
-    //updateRow_buffer_H2D.updateTo(); 
-    {
-      //const Value** Ainv_mw_ptr   = updateRow_buffer_H2D.data();
-      //const Value** phiV_mw_ptr   = updateRow_buffer_H2D.data() + n_accepted;
-      Value** temp_mw_ptr   = updateRow_buffer_H2D.data() + n_accepted * 2;
-      Value** rcopy_mw_ptr  = updateRow_buffer_H2D.data() + n_accepted * 3;
-      Value** dpsiM_mw_out  = updateRow_buffer_H2D.data() + n_accepted * 4;
-      Value** d2psiM_mw_out = updateRow_buffer_H2D.data() + n_accepted * 5;
-      Value** dpsiM_mw_in   = updateRow_buffer_H2D.data() + n_accepted * 6;
-      Value** d2psiM_mw_in  = updateRow_buffer_H2D.data() + n_accepted * 7;
+    constexpr auto trans  = oneapi::mkl::transpose::trans;
+    constexpr Value cone  = Value(1.0);
+    constexpr Value czero = Value(0.0);
 
-      const auto trans  = oneapi::mkl::transpose::trans;
-      const Value cone  = Value(1.0);
-      const Value czero = Value(0.0);
-      sycl::queue& lead_q(*(engine_leader.m_queue));
-      auto e = syclBLAS::gemv_batched(lead_q, trans, norb, norb, &cone, Ainv_mw_c.data(), lda, phiV_mw_c.data(), 1, &czero,
-                                      temp_mw_ptr, 1, n_accepted);
+    sycl::queue& lead_q(*(engine_leader.m_queue));
+    auto e = syclBLAS::gemv_batched(lead_q, trans, norb, norb, &cone, cptr_buffer[C_Ainv], lda, 
+                                    cptr_buffer[C_phiV], 1, &czero, ptr_buffer[C_temp], 1, n_accepted);
 
-      copyAinvRow_saveGL(lead_q, rowchanged, norb, Ainv_mw_c.data(), lda, temp_mw_ptr, rcopy_mw_ptr, dpsiM_mw_in,
-                         d2psiM_mw_in, dpsiM_mw_out, d2psiM_mw_out, n_accepted);
+    copyAinvRow_saveGL(lead_q, rowchanged, norb, cptr_buffer[C_Ainv], lda, 
+                       ptr_buffer[C_temp], ptr_buffer[C_rcopy], 
+                       cptr_buffer[C_dpsiM], cptr_buffer[C_d2psiM], 
+                       ptr_buffer[C_dpsiM], ptr_buffer[C_d2psiM],  n_accepted);
 
-      syclBLAS::ger_batched(lead_q, norb, norb, c_ratio_inv.data(), rcopy_mw_ptr, 1, temp_mw_ptr, 1, updateRow_buffer_H2D.data(), lda,
-                            n_accepted).wait();
-    }
+    syclBLAS::ger_batched(lead_q, norb, norb, c_ratio_inv.data(), ptr_buffer[C_rcopy], 1, 
+                          ptr_buffer[C_temp], 1, ptr_buffer[C_Ainv], lda, n_accepted).wait();
   }
 
 public:
@@ -524,7 +518,10 @@ public:
       return;
     }
 
-    auto& accept_rejectRow_buffer_H2D = engine_leader.mw_mem_->accept_rejectRow_buffer_H2D;
+    auto& ptr_buffer    = engine_leader.mw_mem_->accept_rejectRow_buffer_H2D;
+    auto& cptr_buffer   = engine_leader.mw_mem_->accept_rejectRow_buffer_H2D_C;
+    auto& mw_delay_list = engine_leader.mw_mem_->mw_delay_list;
+
     int& delay_count                  = engine_leader.delay_count;
     const int lda_Binv                = engine_leader.Binv_gpu.cols();
     const int norb                    = engine_leader.get_psiMinv().rows();
@@ -532,122 +529,110 @@ public:
     const int nw                      = engines.size();
     const int n_accepted              = psiM_g_list.size();
 
-    accept_rejectRow_buffer_H2D.resize(14);
+    ptr_buffer.resize(12,nw);
+    cptr_buffer.resize(12,nw);
+    mw_delay_list.resize(nw);
 
-    PinnedHostVector<const Value*> V_mw_c(n_accepted);
-    PinnedHostVector<const Value*> phiV_mw_c(n_accepted);
-    PinnedHostVector<const Value*> Binv_mw_c(n_accepted);    
-    PinnedHostVector<const Value*> p_mw_c(n_accepted);       
+    constexpr unsigned C_invRow  = 0;
+    constexpr unsigned C_V       = 1;
+    constexpr unsigned C_U_row   = 2;
+    constexpr unsigned C_p       = 3;
+    constexpr unsigned C_Binv    = 4;
+    constexpr unsigned C_BinvRow = 5;
+    constexpr unsigned C_BinvCol = 6;
+    constexpr unsigned C_V_row   = 7;
+    constexpr unsigned C_phiV    = 8;
+    constexpr unsigned C_dpsiM   = 9;
+    constexpr unsigned C_d2psiM  = 10;
 
-    Matrix<Value*> ptr_buffer(accept_rejectRow_buffer_H2D.data(), 14, nw);
     Value* c_ratio_inv = engine_leader.mw_mem_->mw_ratio.data();
-    for (int iw = 0, count_accepted = 0, count_rejected = 0; iw < nw; iw++)
+    for (unsigned iw = 0, count_accepted = 0, count_rejected = 0; iw < nw; iw++)
     {
       This_t& engine = engines[iw];
       if (isAccepted[iw])
       {
-        ptr_buffer[0][count_accepted]  = engine.psiMinv_.device_data() + lda * rowchanged;
+        ptr_buffer[C_invRow ][count_accepted] = engine.psiMinv_.device_data() + lda * rowchanged;
+        ptr_buffer[C_V      ][count_accepted] = engine.V_gpu.data();
+        ptr_buffer[C_U_row  ][count_accepted] = engine.U_gpu.data() + norb * delay_count;
+        ptr_buffer[C_p      ][count_accepted] = engine.p_gpu.data();
+        ptr_buffer[C_Binv   ][count_accepted] = engine.Binv_gpu.data();
+        ptr_buffer[C_BinvRow][count_accepted] = engine.Binv_gpu.data() + delay_count * lda_Binv;
+        ptr_buffer[C_BinvCol][count_accepted] = engine.Binv_gpu.data() + delay_count;
+        ptr_buffer[C_V_row  ][count_accepted] = engine.V_gpu.data() + norb * delay_count;
+        ptr_buffer[C_dpsiM  ][count_accepted] = psiM_g_list[count_accepted];
+        ptr_buffer[C_d2psiM ][count_accepted] = psiM_l_list[count_accepted];
+        mw_delay_list        [count_accepted] = engine.delay_list.data();
 
-        ptr_buffer[1][count_accepted]  = engine.V_gpu.data();
-        V_mw_c[count_accepted] = engine.V_gpu.data();
+        cptr_buffer[C_V     ][count_accepted] = engine.V_gpu.data();
+        cptr_buffer[C_p     ][count_accepted] = engine.p_gpu.data();
+        cptr_buffer[C_Binv  ][count_accepted] = engine.Binv_gpu.data();
+        cptr_buffer[C_phiV  ][count_accepted] = phi_vgl_v_dev_ptr + norb * iw;
+        cptr_buffer[C_dpsiM ][count_accepted] = phi_vgl_v_dev_ptr + phi_vgl_stride + norb * 3 * iw;
+        cptr_buffer[C_d2psiM][count_accepted] = phi_vgl_v_dev_ptr + phi_vgl_stride * 4 + norb * iw;
 
-        ptr_buffer[2][count_accepted]  = engine.U_gpu.data() + norb * delay_count;
-        ptr_buffer[3][count_accepted]  = engine.p_gpu.data();
-        p_mw_c[count_accepted] = engine.p_gpu.data();
-
-        ptr_buffer[4][count_accepted]  = engine.Binv_gpu.data();
-        Binv_mw_c[count_accepted] = engine.Binv_gpu.data();
-
-        ptr_buffer[5][count_accepted]  = engine.Binv_gpu.data() + delay_count * lda_Binv;
-        ptr_buffer[6][count_accepted]  = engine.Binv_gpu.data() + delay_count;
-        ptr_buffer[7][count_accepted]  = reinterpret_cast<Value*>(engine.delay_list.data());
-        ptr_buffer[8][count_accepted]  = engine.V_gpu.data() + norb * delay_count;
-
-        ptr_buffer[9][count_accepted]  = const_cast<Value*>(phi_vgl_v_dev_ptr + norb * iw);
-        phiV_mw_c[count_accepted]=phi_vgl_v_dev_ptr + norb * iw;
-
-        ptr_buffer[10][count_accepted] = const_cast<Value*>(phi_vgl_v_dev_ptr + phi_vgl_stride + norb * 3 * iw);
-        ptr_buffer[11][count_accepted] = const_cast<Value*>(phi_vgl_v_dev_ptr + phi_vgl_stride * 4 + norb * iw);
-        ptr_buffer[12][count_accepted] = psiM_g_list[count_accepted];
-        ptr_buffer[13][count_accepted] = psiM_l_list[count_accepted];
         c_ratio_inv[count_accepted]    = Value(1) / ratios[iw];
         count_accepted++;
       }
       else
       {
-        ptr_buffer[0][n_accepted + count_rejected] = engine.get_ref_psiMinv().device_data() + lda * rowchanged;
-        ptr_buffer[1][n_accepted + count_rejected] = engine.V_gpu.data();
-        V_mw_c[n_accepted+count_rejected] = engine.V_gpu.data();
+        const unsigned rejected=n_accepted + count_rejected;
+        ptr_buffer[C_invRow ][rejected] = engine.get_ref_psiMinv().device_data() + lda * rowchanged;
+        ptr_buffer[C_V      ][rejected] = engine.V_gpu.data();
+        ptr_buffer[C_BinvRow][rejected] = engine.Binv_gpu.data() + delay_count * lda_Binv;
+        ptr_buffer[C_BinvCol][rejected] = engine.Binv_gpu.data() + delay_count;
+        ptr_buffer[C_V_row  ][rejected] = engine.V_gpu.data() + norb * delay_count;
+        ptr_buffer[C_U_row  ][rejected] = engine.U_gpu.data() + norb * delay_count;
+        ptr_buffer[C_p      ][rejected] = engine.p_gpu.data();
+        ptr_buffer[C_Binv   ][rejected] = engine.Binv_gpu.data();
+        mw_delay_list        [rejected] = engine.delay_list.data();
 
-        ptr_buffer[2][n_accepted + count_rejected] = engine.U_gpu.data() + norb * delay_count;
-        ptr_buffer[3][n_accepted + count_rejected] = engine.p_gpu.data();
-        p_mw_c[n_accepted + count_rejected] = engine.p_gpu.data();
+        cptr_buffer[C_V     ][rejected] = engine.V_gpu.data();
+        cptr_buffer[C_p     ][rejected] = engine.p_gpu.data();
+        cptr_buffer[C_Binv  ][rejected] = engine.Binv_gpu.data();
 
-        ptr_buffer[4][n_accepted + count_rejected] = engine.Binv_gpu.data();
-        Binv_mw_c[n_accepted + count_rejected] = engine.Binv_gpu.data();
-
-        ptr_buffer[5][n_accepted + count_rejected] = engine.Binv_gpu.data() + delay_count * lda_Binv;
-        ptr_buffer[6][n_accepted + count_rejected] = engine.Binv_gpu.data() + delay_count;
-        ptr_buffer[7][n_accepted + count_rejected] = reinterpret_cast<Value*>(engine.delay_list.data());
-        ptr_buffer[8][n_accepted + count_rejected] = engine.V_gpu.data() + norb * delay_count;
         count_rejected++;
       }
     }
 
-    Value** invRow_mw_ptr   = accept_rejectRow_buffer_H2D.data();
-    Value** V_mw_ptr        = accept_rejectRow_buffer_H2D.data() + nw;
-    Value** U_row_mw_ptr    = accept_rejectRow_buffer_H2D.data() + nw * 2;
-    Value** p_mw_ptr        = accept_rejectRow_buffer_H2D.data() + nw * 3;
-    Value** Binv_mw_ptr     = accept_rejectRow_buffer_H2D.data() + nw * 4;
-    Value** BinvRow_mw_ptr  = accept_rejectRow_buffer_H2D.data() + nw * 5;
-    Value** BinvCol_mw_ptr  = accept_rejectRow_buffer_H2D.data() + nw * 6;
-    int** delay_list_mw_ptr = reinterpret_cast<int**>(accept_rejectRow_buffer_H2D.data() + nw * 7);
-    Value** V_row_mw_ptr    = accept_rejectRow_buffer_H2D.data() + nw * 8;
-    Value** phiV_mw_ptr     = accept_rejectRow_buffer_H2D.data() + nw * 9;
-    Value** dpsiM_mw_in     = accept_rejectRow_buffer_H2D.data() + nw * 10;
-    Value** d2psiM_mw_in    = accept_rejectRow_buffer_H2D.data() + nw * 11;
-    Value** dpsiM_mw_out    = accept_rejectRow_buffer_H2D.data() + nw * 12;
-    Value** d2psiM_mw_out   = accept_rejectRow_buffer_H2D.data() + nw * 13;
-
-    Value* ratio_inv_mw_ptr = engine_leader.mw_mem_->mw_ratio.data();
-
-    const size_t nbytes = norb * sizeof(Value);
-    std::vector<sycl::event> events(nw);
 
     sycl::queue& lead_q(*(engine_leader.m_queue));
-    //std::copy_n(Ainv[rowchanged], norb, V[delay_count]);
-    for (int iw = 0; iw < nw; ++iw)
-      events[iw] = lead_q.memcpy(V_row_mw_ptr[iw], invRow_mw_ptr[iw], nbytes);
-    //sycl::event::wait(events);
+    std::vector<sycl::event> events(nw);
+    {
+      const size_t nbytes = norb * sizeof(Value);
+      for (int iw = 0; iw < nw; ++iw)
+        events[iw] = lead_q.memcpy(ptr_buffer[C_V_row][iw], ptr_buffer[C_invRow][iw], nbytes);
+    }
 
-    const auto trans  = oneapi::mkl::transpose::trans;
-    const Value cminusone  = Value(-1.0);
-    const Value cone  = Value(1.0);
-    const Value czero = Value(0.0);
+    constexpr auto trans  = oneapi::mkl::transpose::trans;
+    constexpr Value cminusone  = Value(-1.0);
+    constexpr Value cone  = Value(1.0);
+    constexpr Value czero = Value(0.0);
 
+    const Value* ratio_inv_mw_ptr = engine_leader.mw_mem_->mw_ratio.data();
 
     // handle accepted walkers
     // the new Binv is [[X Y] [Z sigma]]
     //BLAS::gemv('T', norb, delay_count + 1, cminusone, V.data(), norb, psiV.data(), 1, czero, p.data(), 1);
-    sycl::event e =syclBLAS::gemv_batched(lead_q, trans, norb, delay_count, &cminusone, V_mw_c.data(),
-                                          norb, phiV_mw_c.data(), 1, &czero, p_mw_ptr, 1, n_accepted, events);
+    sycl::event e =syclBLAS::gemv_batched(lead_q, trans, norb, delay_count, &cminusone, 
+                                          cptr_buffer[C_V], norb, cptr_buffer[C_phiV], 1, &czero, 
+                                          ptr_buffer[C_p], 1, n_accepted, events);
     // Y
     //BLAS::gemv('T', delay_count, delay_count, sigma, Binv.data(), lda_Binv, p.data(), 1, czero, Binv.data() + delay_count,
     //           lda_Binv);
     auto success = syclBLAS::gemv_batched_alpha(lead_q, trans, delay_count, delay_count, 
-                                          ratio_inv_mw_ptr, n_accepted, Binv_mw_c.data(),
-                                          lda_Binv, p_mw_c.data(), 1, czero, BinvCol_mw_ptr, lda_Binv,
-                                          n_accepted,{e});
+                                                ratio_inv_mw_ptr, n_accepted, cptr_buffer[C_Binv],
+                                                lda_Binv, cptr_buffer[C_p], 1, czero, ptr_buffer[C_BinvCol], lda_Binv,
+                                                n_accepted,{e});
     // X
     //BLAS::ger(delay_count, delay_count, cone, Binv[delay_count], 1, Binv.data() + delay_count, lda_Binv,
     //          Binv.data(), lda_Binv);
-    syclBLAS::ger_batched(lead_q, delay_count, delay_count, &cone, BinvRow_mw_ptr, 1,
-                          BinvCol_mw_ptr, lda_Binv, Binv_mw_ptr, lda_Binv, n_accepted).wait();
+    syclBLAS::ger_batched(lead_q, delay_count, delay_count, &cone, ptr_buffer[C_BinvRow], 1,
+                          ptr_buffer[C_BinvCol], lda_Binv, ptr_buffer[C_Binv], lda_Binv, n_accepted).wait();
 
-    add_delay_list_save_sigma_VGL(lead_q, delay_list_mw_ptr, rowchanged, delay_count,
-                                  Binv_mw_ptr, lda_Binv, ratio_inv_mw_ptr, phiV_mw_ptr,
-                                  dpsiM_mw_in, d2psiM_mw_in, U_row_mw_ptr, dpsiM_mw_out,
-                                  d2psiM_mw_out, norb, n_accepted, nw).wait();
+    add_delay_list_save_sigma_VGL(lead_q, mw_delay_list.data(), rowchanged, delay_count,
+                                  ptr_buffer[C_Binv], lda_Binv, ratio_inv_mw_ptr, cptr_buffer[C_phiV],
+                                  cptr_buffer[C_dpsiM], cptr_buffer[C_d2psiM], ptr_buffer[C_U_row], ptr_buffer[C_dpsiM],
+                                  ptr_buffer[C_d2psiM], norb, n_accepted, nw).wait();
     delay_count++;
 
     // update Ainv when maximal delay is reached
@@ -664,45 +649,42 @@ public:
     int& delay_count    = engine_leader.delay_count;
     if (delay_count == 0)
       return;
-    auto& updateInv_buffer_H2D = engine_leader.mw_mem_->updateInv_buffer_H2D;
-    const int norb             = engine_leader.get_psiMinv().rows();
-    const int lda              = engine_leader.get_psiMinv().cols();
-    const int nw               = engines.size();
-    updateInv_buffer_H2D.resize(6 * nw);
+    auto& ptr_buffer    = engine_leader.mw_mem_->updateInv_buffer_H2D;
+    auto& cptr_buffer   = engine_leader.mw_mem_->updateInv_buffer_H2D_C;
+    auto& mw_delay_list = engine_leader.mw_mem_->mw_delay_list;
 
-    PinnedHostVector<const Value*> U_mw_c(nw);
-    PinnedHostVector<const Value*> Ainv_mw_c(nw);
-    PinnedHostVector<const Value*> tempMat_mw_c(nw);
-    PinnedHostVector<const Value*> V_mw_c(nw);
-    PinnedHostVector<const Value*> Binv_mw_c(nw);
-    PinnedHostVector<const int*> delay_list_mw_c(nw);
+    const int norb   = engine_leader.get_psiMinv().rows();
+    const int lda    = engine_leader.get_psiMinv().cols();
+    const int nw     = engines.size();
 
-    Matrix<Value*> ptr_buffer(updateInv_buffer_H2D.data(), 6, nw);
+    ptr_buffer.resize(5, nw);
+    cptr_buffer.resize(5, nw);
+
+    constexpr unsigned C_U       =0;
+    constexpr unsigned C_Ainv    =1;
+    constexpr unsigned C_tempMat =2;
+    constexpr unsigned C_V       =3;
+    constexpr unsigned C_Binv    =4;
+
+
     for (int iw = 0; iw < nw; iw++)
     {
       This_t& engine    = engines[iw];
-      ptr_buffer[0][iw] = engine.U_gpu.data();
-      U_mw_c[iw]        = engine.U_gpu.data();
-      ptr_buffer[1][iw] = engine.get_ref_psiMinv().device_data();
-      Ainv_mw_c[iw]     = engine.get_ref_psiMinv().device_data();
-      ptr_buffer[2][iw] = engine.tempMat_gpu.data();
-      tempMat_mw_c[iw]  = engine.tempMat_gpu.data();
 
-      //ptr_buffer[3][iw] = reinterpret_cast<Value*>(engine.delay_list.data());
-      delay_list_mw_c[iw]=engine.delay_list.data();
-      ptr_buffer[4][iw] = engine.V_gpu.data();
-      V_mw_c[iw]        = engine.V_gpu.data();
-      ptr_buffer[5][iw] = engine.Binv_gpu.data();
-      Binv_mw_c[iw]     = engine.Binv_gpu.data();
+      ptr_buffer[C_U      ][iw] = engine.U_gpu.data();
+      ptr_buffer[C_Ainv   ][iw] = engine.get_ref_psiMinv().device_data();
+      ptr_buffer[C_tempMat][iw] = engine.tempMat_gpu.data();
+      ptr_buffer[C_V      ][iw] = engine.V_gpu.data();
+      ptr_buffer[C_Binv   ][iw] = engine.Binv_gpu.data();
+
+      cptr_buffer[C_U      ][iw] = engine.U_gpu.data();
+      cptr_buffer[C_Ainv   ][iw] = engine.get_ref_psiMinv().device_data();
+      cptr_buffer[C_tempMat][iw] = engine.tempMat_gpu.data();
+      cptr_buffer[C_V      ][iw] = engine.V_gpu.data();
+      cptr_buffer[C_Binv   ][iw] = engine.Binv_gpu.data();
+
+      mw_delay_list[iw] = engine.delay_list.data();
     }
-
-    Value** U_mw_ptr        = updateInv_buffer_H2D.data();
-    Value** Ainv_mw_ptr     = updateInv_buffer_H2D.data() + nw;
-    Value** tempMat_mw_ptr  = updateInv_buffer_H2D.data() + nw * 2;
-    //DON"T LIKE THIS
-    //int** delay_list_mw_ptr = reinterpret_cast<int**>(updateInv_buffer_H2D.data() + nw * 3);
-    Value** V_mw_ptr        = updateInv_buffer_H2D.data() + nw * 4;
-    Value** Binv_mw_ptr     = updateInv_buffer_H2D.data() + nw * 5;
 
     /*
     if (delay_count == 1)
@@ -717,25 +699,26 @@ public:
 */
     {
       sycl::queue& lead_q(*(engine_leader.m_queue));
-      const auto trans    = oneapi::mkl::transpose::trans;
-      const auto nontrans = oneapi::mkl::transpose::nontrans;
-
-      //Using group API with a group, note the use of &cone, &cminus_one, and &czero
-     
-      const int lda_Binv = engine_leader.Binv_gpu.cols();
+      constexpr auto trans    = oneapi::mkl::transpose::trans;
+      constexpr auto nontrans = oneapi::mkl::transpose::nontrans;
       constexpr Value cone(1), czero(0), cminusone(-1);
+
+      const int lda_Binv = engine_leader.Binv_gpu.cols();
+
       syclBLAS::gemm_batched(lead_q, trans, nontrans, delay_count, norb, norb, &cone,
-                             U_mw_c.data(), norb, Ainv_mw_c.data(), lda, &czero, tempMat_mw_ptr, lda_Binv, nw).wait();
+                             cptr_buffer[C_U], norb, cptr_buffer[C_Ainv], lda, &czero, 
+                             ptr_buffer[C_tempMat], lda_Binv, nw).wait();
 
       //cudaErrorCheck(SYCL::applyW_batched(hstream, delay_list_mw_ptr, delay_count, tempMat_mw_ptr, lda_Binv, nw),
-      auto e =applyW_batched(lead_q,delay_list_mw_c.data(), delay_count, tempMat_mw_ptr, lda_Binv, nw);
+      auto e =applyW_batched(lead_q,mw_delay_list.data(), delay_count, ptr_buffer[C_tempMat], lda_Binv, nw);
 
       e = syclBLAS::gemm_batched(lead_q,nontrans, nontrans, norb, delay_count, delay_count, &cone,
-                                 V_mw_c.data(), norb, Binv_mw_c.data(), lda_Binv, &czero, U_mw_ptr, norb, nw,{e});
+                                 cptr_buffer[C_V], norb, cptr_buffer[C_Binv], lda_Binv, &czero, 
+                                 ptr_buffer[C_U], norb, nw,{e});
 
-      syclBLAS::gemm_batched(lead_q, nontrans, nontrans, 
-          norb, norb, delay_count, &cminusone,
-          U_mw_c.data(), norb, tempMat_mw_c.data(), lda_Binv, &cone, Ainv_mw_ptr, lda, nw,{e}).wait();
+      syclBLAS::gemm_batched(lead_q, nontrans, nontrans, norb, norb, delay_count, &cminusone,
+                             cptr_buffer[C_U], norb, cptr_buffer[C_tempMat], lda_Binv, &cone, 
+                             ptr_buffer[C_Ainv], lda, nw,{e}).wait();
     }
     delay_count = 0;
   }

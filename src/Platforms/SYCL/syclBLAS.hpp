@@ -135,19 +135,19 @@ inline sycl::event ger(sycl::queue& handle,
                        const T* const  y,
                        const unsigned  incy,
                        T* const        A,
-                       const unsigned  lda)
+                       const unsigned  lda,
+                       const size_t COLBS=16)
 {
-  constexpr size_t ts=16;
 
-  const size_t m_max=((m+ts-1)/ts)*ts;
-  const size_t n_max=((n+ts-1)/ts)*ts;
+  const size_t m_max=((m+COLBS-1)/COLBS)*COLBS;
+  const size_t n_max=((n+COLBS-1)/COLBS)*COLBS;
 
-  return handle.parallel_for(sycl::nd_range<2>{{m_max,n_max},{ts,ts}},
+  return handle.parallel_for(sycl::nd_range<2>{{m_max,n_max},{COLBS,COLBS}},
           [=](sycl::nd_item<2> item) { 
-          unsigned x_g = item.get_global_id(0);
-          unsigned y_g = item.get_global_id(1);
-          if(x_g<m && y_g<n) 
-          A[x_g*lda + y_g] += alpha*x[y_g]*y[x_g];
+          const unsigned i = item.get_global_id(0);
+          const unsigned j = item.get_global_id(1);
+          if(i<m && j<n) 
+          A[i*lda + j] += alpha*x[j*incx]*y[i*incy];
           });
 }
 
@@ -162,22 +162,20 @@ inline sycl::event ger_batched(sycl::queue& handle,
                                 const int       incy,
                                 T* const        A[],
                                 const int       lda,
-                                const size_t    batch_count)
+                                const size_t    batch_count,
+                                const size_t COLBS=16)
 {
 
-  constexpr size_t ts=16;
-
-  const size_t m_max=((m+ts-1)/ts)*ts;
-  const size_t n_max=((n+ts-1)/ts)*ts;
-
+  const size_t m_max=((m+COLBS-1)/COLBS)*COLBS;
+  const size_t n_max=((n+COLBS-1)/COLBS)*COLBS;
   return handle.parallel_for(
-      sycl::nd_range<3>{{batch_count,m_max,n_max},{1,ts,ts}},
-          [=](sycl::nd_item<3> item) { // [[cl::intel_reqd_sub_group_size(32)]] {
+      sycl::nd_range<3>{{batch_count,m_max,n_max},{1,COLBS,COLBS}},
+          [=](sycl::nd_item<3> item) { 
           unsigned batch = item.get_global_id(0);
-          unsigned x_g = item.get_global_id(1);
-          unsigned y_g = item.get_global_id(2);
-          if(x_g<m && y_g<n) 
-          A[batch][x_g*lda + y_g] += alpha[batch]*x[batch][y_g]*y[batch][x_g];
+          unsigned i = item.get_global_id(1);
+          unsigned j = item.get_global_id(2);
+          if(i<m && j<n) 
+          A[batch][i*lda + j] += alpha[batch] * x[batch][j*incx] * y[batch][i*incy];
           });
 }
 
