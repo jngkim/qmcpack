@@ -23,6 +23,7 @@
 #include "Utilities/TimerManager.h"
 #include "QMCWaveFunctions/Fermion/DiracDeterminantBase.h"
 #include "OhmmsPETE/OhmmsArray.h"
+#include "CPU/BLAS.hpp"
 
 namespace qmcplusplus
 {
