@@ -16,14 +16,14 @@
 #include <iostream>
 #include <random>
 #include "OMPTarget/OMPallocator.hpp"
+#include <OhmmsPETE/OhmmsVector.h>
+#include <OhmmsPETE/OhmmsMatrix.h>
 #include "SYCL/SYCLruntime.hpp"
 #include "SYCL/SYCLallocator.hpp"
 #include "SYCL/syclBLAS.hpp"
-#include <OhmmsPETE/OhmmsVector.h>
-#include <OhmmsPETE/OhmmsMatrix.h>
-#include <CPU/BLAS.hpp>
-#include "oneapi/mkl/lapack.hpp"
+#include "SYCL/mkl.hpp"
 #include "mkl.h"
+#include "oneapi/mkl/lapack.hpp"
 
 
 namespace qmcplusplus
@@ -69,7 +69,7 @@ void test_inverse(const std::int64_t M, char trans)
 
   //check the identity
   Matrix<T> C(M,M);
-  BLAS::gemm(trans, 'N', M, M, M, 1.0, B.data(), M, A.data(), M, 0.0, C.data(),M);
+  syclBLAS::gemm(trans, 'N', M, M, M, 1.0, B.data(), M, A.data(), M, 0.0, C.data(),M);
   for(int i=0; i<M; ++i)
   {
     for(int j=0; j<M; ++j)
@@ -164,7 +164,7 @@ void test_inverse_batched(const std::int64_t M, int batch_count, char trans)
     lu_events[batch].wait();
     As[batch].updateFrom();
 
-    BLAS::gemm(trans, 'N', M, M, M, 1.0, B.data(), M, As[batch].data(), M, 0.0, C.data(),M);
+    syclBLAS::gemm(trans, 'N', M, M, M, 1.0, B.data(), M, As[batch].data(), M, 0.0, C.data(),M);
     for(int i=0; i<M; ++i)
     {
       for(int j=0; j<M; ++j)

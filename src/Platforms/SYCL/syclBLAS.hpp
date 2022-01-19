@@ -374,6 +374,7 @@ inline sycl::event transpose_batched_strided(sycl::queue& q,
             matB[j+i*ldb]=matA[j+i*lda];
           });
     }
+
 } // namespace 
 
 } // namespace qmcplusplus
