@@ -11,7 +11,6 @@
 #ifndef QMCPLUSPLUS_SYCL_DEVICE_MANAGER_H
 #define QMCPLUSPLUS_SYCL_DEVICE_MANAGER_H
 #include <vector>
-#include <level_zero/ze_api.h>
 #include <CL/sycl.hpp>
 namespace qmcplusplus
 {
@@ -20,13 +19,12 @@ namespace qmcplusplus
   struct syclDeviceInfo {
     sycl::context sycl_context;
     sycl::device sycl_device;
-    ze_context_handle_t ze_context;
   };
 
-  std::vector<struct syclDeviceInfo> xomp_get_infos_devices();
+  std::vector<struct syclDeviceInfo> xomp_get_sycl_devices();
 
   inline syclDeviceInfo xomp_get_device_info(const int n) {
-    return xomp_get_infos_devices()[n];
+    return xomp_get_sycl_devices()[n];
   }
 
 }

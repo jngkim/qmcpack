@@ -19,3 +19,7 @@ endif()
 if(ENABLE_OFFLOAD)
   add_subdirectory(OMPTarget)
 endif(ENABLE_OFFLOAD)
+
+if(ENABLE_SYCL)
+  add_subdirectory(SYCL)
+endif(ENABLE_SYCL)
