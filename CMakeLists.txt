@@ -465,6 +465,10 @@ if(QMC_MPI)
         "For example: cmake -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpic++\n"
         "To build without MPI, pass '-DQMC_MPI=0' to cmake")
     message(WARNING ${MPI_WARNING_LIST})
+
+    if(MPI_FOUND)
+       link_libraries(${MPI_C_LIBRARIES})
+    endif()
   endif()
 
   message(STATUS "MPI runner MPIEXEC_EXECUTABLE : ${MPIEXEC_EXECUTABLE}")

@@ -126,15 +126,13 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "CrayLinuxEnvironment")
       endif() #(CMAKE_CXX_FLAGS MATCHES "-march=" AND CMAKE_C_FLAGS MATCHES "-march=")
     else() #(CMAKE_CXX_FLAGS MATCHES "-march=" OR CMAKE_C_FLAGS MATCHES "-march=")
       # use -march=native
-      if(NOT ENABLE_OFFLOAD)
       set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
-      ENDIF()
     endif() #(CMAKE_CXX_FLAGS MATCHES "-march=" OR CMAKE_C_FLAGS MATCHES "-march=")
   endif()
 
   if(ENABLE_SYCL)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl -fsycl-unnamed-lambda")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
   endif()
 
 endif()
