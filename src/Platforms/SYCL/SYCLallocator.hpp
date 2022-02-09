@@ -267,49 +267,6 @@ struct qmc_allocator_traits<qmcplusplus::SYCLHostAllocator<T>>
 
 };
 
-
-#if 0
-/** allocator locks memory pages allocated by ULPHA
- * @tparm T data type
- * @tparm ULPHA host memory allocator using unlocked page
- *
- * ULPHA cannot be SYCLHostAllocator
- */
-template<typename T, class ULPHA = std::allocator<T>>
-struct SYCLLockedPageAllocator : public ULPHA
-{
-  using value_type    = typename ULPHA::value_type;
-  using size_type     = typename ULPHA::size_type;
-  using pointer       = typename ULPHA::pointer;
-  using const_pointer = typename ULPHA::const_pointer;
-
-  SYCLLockedPageAllocator() = default;
-  template<class U, class V>
-  SYCLLockedPageAllocator(const SYCLLockedPageAllocator<U, V>&)
-  {}
-
-  template<class U, class V>
-  struct rebind
-  {
-    typedef SYCLLockedPageAllocator<U, V> other;
-  };
-
-  value_type* allocate(std::size_t n)
-  {
-    static_assert(std::is_same<T, value_type>::value, "SYCLLockedPageAllocator and ULPHA data types must agree!");
-    value_type* pt = ULPHA::allocate(n);
-    cudaErrorCheck(cudaHostRegister(pt, n * sizeof(T), cudaHostRegisterDefault),
-                   "cudaHostRegister failed in SYCLLockedPageAllocator!");
-    return pt;
-  }
-
-  void deallocate(value_type* pt, std::size_t n)
-  {
-    cudaErrorCheck(cudaHostUnregister(pt), "cudaHostUnregister failed in SYCLLockedPageAllocator!");
-    ULPHA::deallocate(pt, n);
-  }
-};
-
 #endif
 } // namespace qmcplusplus
 
