@@ -69,9 +69,13 @@ void xomp_sycl_level_zero(std::vector<syclDeviceInfo>& ompSyclContext)
         // Store the Level_zero context. This will be required to create the SYCL context latter
         ompDeviceId2Context[D].ze_context = hContext;
 
+#if defined(__SYCL_COMPILER_VERSION) && (__SYCL_COMPILER_VERSION >= 20210929)
+        const sycl::platform sycl_platform=sycl::ext::oneapi::level_zero::make_platform(reinterpret_cast<pi_native_handle>(hPlatform));
+        ompDeviceId2Context[D].sycl_device = sycl::ext::oneapi::level_zero::make_device(sycl_platform, reinterpret_cast<pi_native_handle>(hDevice));
+#else
         const sycl::platform sycl_platform = sycl::level_zero::make<sycl::platform>(hPlatform);
-
         ompDeviceId2Context[D].sycl_device = sycl::level_zero::make<sycl::device>(sycl_platform, hDevice);
+#endif
         hContext2device[std::make_pair(hPlatform,hContext)].push_back(ompDeviceId2Context[D].sycl_device);
     }
 
@@ -84,13 +88,17 @@ void xomp_sycl_level_zero(std::vector<syclDeviceInfo>& ompSyclContext)
         // This only work because the backend poiter is saved as a shared_pointer in SYCL context with Intel Implementation
         // https://github.com/intel/llvm/blob/ef33c57e48237c7d918f5dab7893554cecc001dd/sycl/source/backend/level_zero.cpp#L59
         // As far as I know this is not required by the SYCL2020 Spec
+#if defined(__SYCL_COMPILER_VERSION) && (__SYCL_COMPILER_VERSION >= 20210929)
+        const sycl::context sycl_context= sycl::make_context<sycl::backend::ext_oneapi_level_zero>(
+        {hContext,sycl_devices,sycl::ext::oneapi::level_zero::ownership::keep});
+#else
         const sycl::context sycl_context = sycl::level_zero::make<sycl::context>(sycl_devices, hContext,  sycl::level_zero::ownership::keep);
+#endif
 
         for (int D=0; D< omp_get_num_devices(); D++)
         {
           if (ompDeviceId2Context[D].ze_context == hContext)
             ompSyclContext[D].sycl_context=sycl_context;
-            //ompDeviceId2Context[D].sycl_context = sycl_context;
           ompSyclContext[D].sycl_device=ompDeviceId2Context[D].sycl_device;
         }
     }
@@ -104,7 +112,7 @@ void xomp_sycl_opencl(std::vector<syclDeviceInfo>& ompSyclContext)
     for (int D=0; D< num_devices; D++) 
     {
         sycl::context sycl_context=
-            cl::sycl::opencl::make<cl::sycl::context>(static_cast<cl_context>(omp_target_get_context(D)));
+            sycl::make_context<sycl::backend::opencl>(static_cast<cl_context>(omp_target_get_context(D)));
         ompSyclContext.push_back({sycl_context, sycl_context.get_devices()[0]});
     }
 }
