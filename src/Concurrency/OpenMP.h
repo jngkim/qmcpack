@@ -18,7 +18,7 @@
 #include "config.h"
 #endif
 
-#ifdef _OPENMP
+#if defined(_OPENMP) || defined(__INTEL_LLVM_COMPILER)
 #include <omp.h>
 #else
 using omp_int_t = int;

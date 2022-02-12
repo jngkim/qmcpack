@@ -267,7 +267,6 @@ struct qmc_allocator_traits<qmcplusplus::SYCLHostAllocator<T>>
 
 };
 
-#endif
 } // namespace qmcplusplus
 
 #endif
