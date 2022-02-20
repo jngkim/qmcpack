@@ -46,7 +46,7 @@ SlaterDetBuilder::SlaterDetBuilder(Communicate* comm,
                                    SPOSetBuilderFactory& factory,
                                    ParticleSet& els,
                                    TrialWaveFunction& psi,
-                                   PtclPoolType& psets)
+                                   const PtclPoolType& psets)
     : WaveFunctionComponentBuilder(comm, els), sposet_builder_factory_(factory), targetPsi(psi), ptclPool(psets)
 {
   ClassName = "SlaterDetBuilder";
@@ -430,7 +430,7 @@ std::unique_ptr<DiracDeterminantBase> SlaterDetBuilder::putDeterminant(
       else
 #endif
       {
-        app_summary() << "      Running on an accelerator via OpenMP offload. Only SM1 update is supported. "
+        app_summary() << "      Running OpenMP offload code path. Only SM1 update is supported. "
                          "delay_rank is ignored."
                       << std::endl;
         adet = std::make_unique<DiracDeterminantBatched<>>(std::move(psi_clone), firstIndex, lastIndex, delay_rank,
