@@ -36,11 +36,11 @@ extern std::atomic<size_t> SYCLallocator_device_mem_allocated;
 
 inline size_t getSYCLdeviceMemAllocated() { return SYCLallocator_device_mem_allocated; }
 
-/** allocator for SYCL unified memory
+/** allocator for SYCL shared memory
  * @tparm T data type
  */
 template<typename T>
-struct SYCLManagedAllocator
+struct SYCLSharedAllocator
 {
   typedef T value_type;
   typedef size_t size_type;
@@ -48,36 +48,37 @@ struct SYCLManagedAllocator
   typedef const T* const_pointer;
   sycl::queue* m_queue=nullptr;
 
-  SYCLManagedAllocator() = default;
+  SYCLSharedAllocator() = default;
   template<class U>
-  SYCLManagedAllocator(const SYCLManagedAllocator<U>&)
+  SYCLSharedAllocator(const SYCLSharedAllocator<U>&)
   {}
 
   template<class U>
   struct rebind
   {
-    typedef SYCLManagedAllocator<U> other;
+    typedef SYCLSharedAllocator<U> other;
   };
 
   T* allocate(std::size_t n)
   {
     if(m_queue == nullptr) m_queue=get_default_queue();
-    T* pt=sycl::aligned_alloc_shared<T>(64,n,m_queue->get_device(), m_queue->get_context());
+    T* pt= sycl::malloc<T>(n, *m_queue, sycl::usm::alloc::shared);
     SYCLallocator_device_mem_allocated += n * sizeof(T);
     return pt;
   }
   void deallocate(T* p, std::size_t) { 
-    sycl::free(p,m_queue->get_context());
+    if(m_queue == nullptr) m_queue=get_default_queue();
+      sycl::free(p,*m_queue);
   }
 };
 
 template<class T1, class T2>
-bool operator==(const SYCLManagedAllocator<T1>&, const SYCLManagedAllocator<T2>&)
+bool operator==(const SYCLSharedAllocator<T1>&, const SYCLSharedAllocator<T2>&)
 {
   return true;
 }
 template<class T1, class T2>
-bool operator!=(const SYCLManagedAllocator<T1>&, const SYCLManagedAllocator<T2>&)
+bool operator!=(const SYCLSharedAllocator<T1>&, const SYCLSharedAllocator<T2>&)
 {
   return false;
 }
@@ -259,10 +260,10 @@ struct qmc_allocator_traits<qmcplusplus::SYCLHostAllocator<T>>
 
   static void fill_n(T* ptr, size_t n, const T& value) { }
 
-  static void updateTo(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
+  static void updateTo(SYCLHostAllocator<T>& alloc, T* host_ptr, size_t n)
   { }
 
-  static void updateFrom(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
+  static void updateFrom(SYCLHostAllocator<T>& alloc, T* host_ptr, size_t n)
   { }
 
 };
