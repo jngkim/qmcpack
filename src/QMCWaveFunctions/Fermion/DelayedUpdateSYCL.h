@@ -19,7 +19,7 @@
 #include "QMCWaveFunctions/detail/SYCL/sycl_determinant_helper.hpp"
 #include "DiracMatrix.h"
 #include "oneapi/mkl/blas.hpp"
-#define SYCL_BLOCKING
+//#define SYCL_BLOCKING
 
 namespace qmcplusplus
 {
@@ -57,7 +57,7 @@ class DelayedUpdateSYCL
   Matrix<T> U;
   Matrix<T> Binv;
   Matrix<T> V;
-  Matrix<T> tempMat; // for debugging only
+  //Matrix<T> tempMat; // for debugging only
   Matrix<T, SYCLAllocator<T>> temp_gpu;
   /// GPU copy of U, V, Binv, Ainv
   Matrix<T, SYCLAllocator<T>> U_gpu;
@@ -121,7 +121,6 @@ public:
     //delay_list_gpu.resize(delay);
     Ainv_gpu.resize(norb, norb);
 
-    tempMat.resize(norb, norb);
   }
 
   /** compute the inverse of the transpose of matrix A and its determinant value in log
@@ -246,6 +245,27 @@ public:
       const int norb     = Ainv.rows();
       const int lda_Binv = Binv.cols();
 
+#if 0
+      m_queue->memcpy(U_gpu.data(), U.data(), norb * delay_count * sizeof(T)).wait();
+
+      oneapi::mkl::blas::gemm(*m_queue, trans, nontrans, 
+                              delay_count, norb, norb, cone, U_gpu.data(),
+                              norb, Ainv_gpu.data(), norb, czero, temp_gpu.data(), 
+                              lda_Binv).wait();
+
+      m_queue->memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T)).wait();
+
+      applyW_stageV_sycl(*m_queue, delay_list.data(), delay_count, 
+                         temp_gpu.data(), norb, temp_gpu.cols(), V_gpu.data(), Ainv_gpu.data()).wait();
+
+      oneapi::mkl::blas::gemm(*m_queue, nontrans, nontrans, norb, delay_count, delay_count, cone,
+                                   V_gpu.data(), norb, Binv_gpu.data(), lda_Binv, czero, U_gpu.data(), norb).wait();
+      oneapi::mkl::blas::gemm(*m_queue, nontrans, nontrans, norb, norb, delay_count, -cone,
+                              U_gpu.data(), norb, temp_gpu.data(), lda_Binv, cone, Ainv_gpu.data(), norb).wait();
+
+#endif
+
+#if 1
       auto u_ = m_queue->memcpy(U_gpu.data(), U.data(), norb * delay_count * sizeof(T));
       auto b_ = m_queue->memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T));
 
@@ -267,6 +287,9 @@ public:
       live_event = oneapi::mkl::blas::gemm(*m_queue, nontrans, nontrans, norb, norb, delay_count, -cone,
                                            U_gpu.data(), norb, temp_gpu.data(), lda_Binv, cone, Ainv_gpu.data(), norb, {b_} );
 #endif
+
+#endif
+
       clearDelayCount();
     }
 

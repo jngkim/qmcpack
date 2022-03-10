@@ -172,6 +172,33 @@ template<typename TMAT, typename T, typename Index_t>
             });
   }
 
+  template<typename T>
+  sycl::event applyW_stageV_sycl(sycl::queue& aq,
+                                 const int* restrict delay_list_gpu, const int delay_count,
+                                 T* restrict temp_gpu, const int numorbs, const int ndelay,
+                                 T* restrict V_gpu, const T* restrict Ainv)
+  {
+    const size_t BS = 128;
+    const size_t NB = (numorbs+BS-1)/BS;
+
+    return aq.parallel_for(sycl::nd_range<1>{{BS*NB},{BS}}, 
+        [=](sycl::nd_item<1> item) {
+        int col = item.get_global_id(0);     
+
+        // move rows of Ainv to V
+        for(int row=0; row<delay_count; row++)
+        {
+          const T* Ainv_row = Ainv + numorbs * delay_list_gpu[row];
+          T* V_row = V_gpu + numorbs * row;
+          if( col<numorbs ) V_row[col] = Ainv_row[col];
+        }
+
+        // apply W to temp
+        if( col<delay_count )
+           temp_gpu[ndelay*delay_list_gpu[col] + col] -= T(1);
+        });
+  }
+
   template<typename T, typename Index_t>
   inline sycl::event 
   applyW_stageV(sycl::queue& aq, T* restrict UV ,const size_t norb, 

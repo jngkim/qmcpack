@@ -68,7 +68,6 @@ namespace qmcplusplus
       m_queue->parallel_for(sycl::range<1>{1024},
           [=](sycl::id<1> item) { V[item]=item+1; }).wait();
     }
-
     CHECK(vec[0] == 1);
     CHECK(vec[77] == 78);
   }

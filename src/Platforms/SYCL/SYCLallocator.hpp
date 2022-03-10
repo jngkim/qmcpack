@@ -83,7 +83,6 @@ bool operator!=(const SYCLSharedAllocator<T1>&, const SYCLSharedAllocator<T2>&)
   return false;
 }
 
-
 /** allocator for SYCL device memory
  * @tparm T data type
  *
@@ -170,6 +169,8 @@ public:
 
   void copyDeviceToDevice(T* to_ptr, size_t n, T* from_ptr)
   {
+    //Vector<double> vec_h(1024);
+    //m_queue->memcpy(vec_h.data(),vec.data(),1024*sizeof(double)).wait();
     m_queue->memcpy(to_ptr,from_ptr,n*sizeof(T)).wait();
   }
 };
@@ -197,13 +198,13 @@ struct qmc_allocator_traits<qmcplusplus::SYCLAllocator<T>>
   static void updateTo(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
   {
     T* device_ptr = alloc.getDevicePtr(host_ptr);
-    copyToDevice(device_ptr, host_ptr, n);
+    alloc.copyToDevice(device_ptr, host_ptr, n);
   }
 
   static void updateFrom(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
   {
     T* device_ptr = alloc.getDevicePtr(host_ptr);
-    copyFromDevice(host_ptr, device_ptr, n);
+    alloc.copyFromDevice(host_ptr, device_ptr, n);
   }
 
 };
