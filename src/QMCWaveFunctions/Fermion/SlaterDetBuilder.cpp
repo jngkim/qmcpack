@@ -294,7 +294,7 @@ std::unique_ptr<DiracDeterminantBase> SlaterDetBuilder::putDeterminant(
   sdAttrib.add(delay_rank, "delay_rank");
   sdAttrib.add(optimize, "optimize", {"no", "yes"});
   sdAttrib.add(matrix_inverter, "matrix_inverter", {"gpu", "host"});
-#if defined(ENABLE_OFFLOAD)
+#if defined(ENABLE_OFFLOAD) && !defined(ENABLE_SYCL)
   sdAttrib.add(use_batch, "batch", {"yes", "no"});
 #else
   sdAttrib.add(use_batch, "batch", {"no", "yes"});
@@ -421,6 +421,18 @@ std::unique_ptr<DiracDeterminantBase> SlaterDetBuilder::putDeterminant(
         app_summary() << "      Running on an NVIDIA GPU via CUDA acceleration." << std::endl;
         adet = std::make_unique<
             DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(std::move(psi_clone),
+                                                                                          firstIndex, lastIndex,
+                                                                                          delay_rank,
+                                                                                          matrix_inverter_kind);
+      }
+      else
+#endif
+#if defined(ENABLE_SYCL)
+      if (useGPU == "yes")
+      {
+        app_summary() << "      Running on a GPU via SYCL acceleration." << std::endl;
+        adet = std::make_unique<
+            DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(std::move(psi_clone),
                                                                                           firstIndex, lastIndex,
                                                                                           delay_rank,
                                                                                           matrix_inverter_kind);
