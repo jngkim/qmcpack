@@ -100,14 +100,14 @@ set(JASTROW_SRC
     test_J1Spin.cpp
     test_J2_bspline.cpp
     test_J2_derivatives.cpp)
-set(DETERMINANT_SRC
-    FakeSPO.cpp
-    test_DiracDeterminant.cpp
-    test_DiracDeterminantBatched.cpp
-    test_multi_dirac_determinant.cpp
-    test_DiracMatrix.cpp
-    test_ci_configuration.cpp
-    test_multi_slater_determinant.cpp)
+ set(DETERMINANT_SRC
+     FakeSPO.cpp
+     test_DiracDeterminant.cpp
+     test_DiracDeterminantBatched.cpp
+     test_multi_dirac_determinant.cpp
+     test_DiracMatrix.cpp
+     test_ci_configuration.cpp
+     test_multi_slater_determinant.cpp)
 
 if(ENABLE_CUDA)
   set(DETERMINANT_SRC ${DETERMINANT_SRC} test_DiracMatrixComputeCUDA.cpp)
