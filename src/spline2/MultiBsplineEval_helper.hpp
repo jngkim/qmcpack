@@ -44,6 +44,11 @@ namespace spline2
 template<typename T, typename TRESIDUAL>
 inline void getSplineBound(T x, TRESIDUAL& dx, int& ind, int nmax)
 {
+#if defined(__INTEL_LLVM_COMPILER) || defined(__INTEL_CLANG_COMPILER)
+  T sf = std::floor(x);
+  dx = x - sf;
+  ind = std::min(std::max(0, static_cast<int>(sf)), nmax);
+#else
   // lower bound
   if (x < 0)
   {
@@ -62,6 +67,7 @@ inline void getSplineBound(T x, TRESIDUAL& dx, int& ind, int nmax)
       dx  = T(1) - std::numeric_limits<T>::epsilon();
     }
   }
+#endif
 }
 
 /** define computeLocationAndFractional: common to any implementation
