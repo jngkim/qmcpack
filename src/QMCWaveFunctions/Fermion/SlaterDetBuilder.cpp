@@ -23,6 +23,7 @@
 #include "QMCWaveFunctions/SPOSetBuilderFactory.h"
 #include "Utilities/ProgressReportEngine.h"
 #include "OhmmsData/AttributeSet.h"
+#include "PlatformSelector.hpp"
 
 #include "QMCWaveFunctions/Fermion/SlaterDet.h"
 #include "QMCWaveFunctions/Fermion/MultiSlaterDetTableMethod.h"
@@ -294,7 +295,7 @@ std::unique_ptr<DiracDeterminantBase> SlaterDetBuilder::putDeterminant(
   sdAttrib.add(delay_rank, "delay_rank");
   sdAttrib.add(optimize, "optimize", {"no", "yes"});
   sdAttrib.add(matrix_inverter, "matrix_inverter", {"gpu", "host"});
-#if defined(ENABLE_OFFLOAD)
+#if defined(ENABLE_OFFLOAD) && !defined(ENABLE_SYCL)
   sdAttrib.add(use_batch, "batch", {"yes", "no"});
 #else
   sdAttrib.add(use_batch, "batch", {"no", "yes"});
@@ -393,8 +394,9 @@ std::unique_ptr<DiracDeterminantBase> SlaterDetBuilder::putDeterminant(
     if (use_batch == "yes")
     {
       app_summary() << "      Using walker batching." << std::endl;
+
 #if defined(ENABLE_CUDA) && defined(ENABLE_OFFLOAD)
-      if (useGPU == "yes")
+      if (CPUOMPTargetCUDASelector::selectPlatform(useGPU) == PlatformKind::CUDA)
       {
         app_summary() << "      Running on an NVIDIA GPU via CUDA acceleration and OpenMP offload." << std::endl;
         adet = std::make_unique<DiracDeterminantBatched<
@@ -406,21 +408,40 @@ std::unique_ptr<DiracDeterminantBase> SlaterDetBuilder::putDeterminant(
       else
 #endif
       {
-        app_summary() << "      Running OpenMP offload code path. Only SM1 update is supported. "
-                         "delay_rank is ignored."
-                      << std::endl;
+#if defined(ENABLE_OFFLOAD)
+        if (CPUOMPTargetCUDASelector::selectPlatform(useGPU) == PlatformKind::CPU)
+          throw std::runtime_error("No pure CPU implementation of walker-batched Slater determinant.");
+        app_summary() << "      Running OpenMP offload code path on GPU. "
+#else
+        app_summary() << "      Running OpenMP offload code path on CPU. "
+#endif
+                      << "Only SM1 update is supported. delay_rank is ignored." << std::endl;
         adet = std::make_unique<DiracDeterminantBatched<>>(std::move(psi_clone), firstIndex, lastIndex, delay_rank,
                                                            matrix_inverter_kind);
       }
     }
     else
     {
+      if (useGPU == "omptarget")
+        throw std::runtime_error("No OpenMP offload implementation of single-walker Slater determinant.");
 #if defined(ENABLE_CUDA)
-      if (useGPU == "yes")
+      if (CPUOMPTargetCUDASelector::selectPlatform(useGPU) == PlatformKind::CUDA)
       {
         app_summary() << "      Running on an NVIDIA GPU via CUDA acceleration." << std::endl;
         adet = std::make_unique<
             DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(std::move(psi_clone),
+                                                                                          firstIndex, lastIndex,
+                                                                                          delay_rank,
+                                                                                          matrix_inverter_kind);
+      }
+      else
+#endif
+#if defined(ENABLE_SYCL)
+      if (useGPU == "yes")
+      {
+        app_summary() << "      Running on a GPU via SYCL acceleration." << std::endl;
+        adet = std::make_unique<
+            DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(std::move(psi_clone),
                                                                                           firstIndex, lastIndex,
                                                                                           delay_rank,
                                                                                           matrix_inverter_kind);
