@@ -446,6 +446,7 @@ sycl::event add_delay_list_save_sigma_VGL(sycl::queue& aq,
   }
 
 
+#if 0
   template<>
     extern sycl::event 
     applyW_stageV_sycl(sycl::queue& aq,
@@ -473,5 +474,6 @@ sycl::event add_delay_list_save_sigma_VGL(sycl::queue& aq,
                        const int* restrict delay_list_gpu, const int delay_count,
                        std::complex<double>* restrict temp_gpu, const int numorbs, const int ndelay,
                        std::complex<double>* restrict V_gpu, const std::complex<double>* restrict Ainv);
+#endif
 }
 #endif
