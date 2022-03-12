@@ -57,6 +57,7 @@ namespace qmcplusplus
     CHECK(vec[77] == 79);
   }
 
+#if 0
   TEST_CASE("SYCL_shared_allocator", "[SYCL]")
   {
     sycl::queue *m_queue=get_default_queue();
@@ -71,5 +72,6 @@ namespace qmcplusplus
     CHECK(vec[0] == 1);
     CHECK(vec[77] == 78);
   }
+#endif
 
 } // namespace qmcplusplus

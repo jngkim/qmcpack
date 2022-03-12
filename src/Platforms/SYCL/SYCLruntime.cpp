@@ -10,6 +10,7 @@
 //////////////////////////////////////////////////////////////////////////////////////
 
 
+#include "config.h"
 #include <cstddef>
 #include <atomic>
 #include <map>
@@ -20,6 +21,7 @@
 
 namespace qmcplusplus
 {
+#ifdef ENABLE_OFFLOAD
 /** create sycl devices with level_zero RT */
 void xomp_sycl_level_zero(std::vector<syclDeviceInfo>& ompSyclContext) 
 {
@@ -151,4 +153,16 @@ std::vector<syclDeviceInfo> xomp_get_sycl_devices()
     }
     return global_queue_danger;
   }
+#else
+  //singleton 
+  sycl::queue* get_default_queue()
+  {
+    static sycl::queue* global_queue_danger=nullptr;
+    if(global_queue_danger==nullptr)
+    {
+      global_queue_danger= new sycl::queue{sycl::gpu_selector()};
+    }
+    return global_queue_danger;
+  }
+#endif
 }
