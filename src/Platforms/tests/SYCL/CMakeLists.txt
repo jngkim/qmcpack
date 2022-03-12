@@ -59,7 +59,7 @@ add_unit_test(${UTEST_NAME} 1 1 $<TARGET_FILE:${UTEST_EXE}>)
 
 ## Use mklSolverInverter
 
-set(UTEST_EXE mkl_solver)
+set(UTEST_EXE test_mkl_solver)
 set(UTEST_NAME deterministic-unit_${UTEST_EXE})
 
 add_executable(${UTEST_EXE} test_mkl_solver.cpp)

@@ -31,8 +31,7 @@ template<typename T_FP>
 class mklSolverInverter
 {
   /// scratch memory for cusolverDN
-  //Matrix<T_FP, SYCLAllocator<T_FP>> Mat1_gpu;
-  Matrix<T_FP, OMPallocator<T_FP>> Mat1_gpu;
+  Matrix<T_FP, SYCLAllocator<T_FP>> Mat1_gpu;
   /// pivot array + info
   Vector<std::int64_t, SYCLHostAllocator<std::int64_t>> ipiv;
   /// workspace
@@ -56,7 +55,6 @@ class mklSolverInverter
       getrf_ws=syclSolver::getrf_scratchpad_size<T_FP>(*m_queue,norb,norb,norb);
       getri_ws=syclSolver::getri_scratchpad_size<T_FP>(*m_queue,norb,norb);
       workspace.resize(std::max(getrf_ws,getri_ws));
-      std::cout << getrf_ws << " " << getri_ws<< std::endl;
     }
   }
 
@@ -74,23 +72,13 @@ public:
     const int norb = logdetT.rows();
     resize(norb);
 
-    //m_queue->memcpy(Ainv_gpu.device_data(),logdetT.data(),logdetT.size()*sizeof(TMAT)).wait();
-    //m_queue->memcpy(Mat1_gpu.device_data(),logdetT.data(),logdetT.size()*sizeof(TMAT)).wait();
-    //syclBLAS::transpose(*m_queue,Mat1_gpu.device_data(),norb,Mat1_gpu.cols(),Ainv_gpu.device_data(),norb,Ainv_gpu.cols()).wait();
-    //syclSolver::getrf(*m_queue,norb,norb,Ainv_gpu.device_data(),norb, ipiv.data(), workspace.data(), getri_ws).wait();
-    m_queue->memcpy(Ainv_gpu.device_data(),logdetT.data(),logdetT.size()*sizeof(TMAT)).wait();
-    syclSolver::getrf(*m_queue,norb,norb,Ainv_gpu.device_data(),norb, ipiv.data(), workspace.data(), getri_ws).wait();
+    //Mat1_gpu is used for transpose
+    m_queue->memcpy(Mat1_gpu.data(),logdetT.data(),logdetT.size()*sizeof(TMAT)).wait();
+    syclBLAS::transpose(*m_queue,Mat1_gpu.data(),norb,Mat1_gpu.cols(),Ainv_gpu.device_data(),norb,Ainv_gpu.cols()).wait();
 
-    if (ipiv[0] != 0)
-    {
-      std::ostringstream err;
-      err << "cusolver::getrf calculation failed with devInfo = " << ipiv[0] << std::endl;
-      std::cerr << err.str();
-      throw std::runtime_error(err.str());
-    }
-    //compute determinant
+    syclSolver::getrf(*m_queue,norb,norb,Ainv_gpu.device_data(),norb, ipiv.data(), workspace.data(), getrf_ws).wait();
     
-    syclSolver::getri(*m_queue,norb,Ainv_gpu.device_data(),norb,ipiv.data(), workspace.data(), getri_ws);
+    syclSolver::getri(*m_queue,norb,Ainv_gpu.device_data(),norb,ipiv.data(), workspace.data(), getri_ws).wait();
   }
 
   /** compute the inverse of the transpose of matrix A and its determinant value in log
@@ -104,30 +92,17 @@ public:
   {
     const int norb = logdetT.rows();
     resize(norb);
-    if(Mat1_gpu.rows()!=norb) 
 
-    m_queue->memcpy(Ainv_gpu.data(),logdetT.data(),logdetT.size()*sizeof(TMAT)).wait();
+    m_queue->memcpy(Ainv_gpu.device_data(),logdetT.data(),logdetT.size()*sizeof(TMAT)).wait();
     //transpose
-    auto e_t=syclBLAS::transpose(*m_queue,Ainv_gpu.data(),norb,Ainv_gpu.cols(),Mat1_gpu.data(),norb,Mat1_gpu.cols());
+    auto e_t = syclBLAS::transpose(*m_queue,Ainv_gpu.device_data(),norb,Ainv_gpu.cols(),Mat1_gpu.data(),norb,Mat1_gpu.cols());
 
-    std::cout << "Done with transpose" << std::endl;
     //getrf (LU) -> getri (inverse)
-    syclSolver::getrf(*m_queue,norb,norb,Mat1_gpu.data(),norb, ipiv.data(), workspace.data(), getrf_ws,{e_t}).wait();
-    std::cout << "Done with getrf" << std::endl;
+    syclSolver::getrf(*m_queue,norb,norb,Mat1_gpu.data(),norb, ipiv.data(), workspace.data(), getrf_ws, {e_t}).wait();
 
-    if (ipiv[0] != 0)
-    {
-      std::ostringstream err;
-      err << "cusolver::getrf calculation failed with devInfo = " << ipiv[0] << std::endl;
-      std::cerr << err.str();
-      throw std::runtime_error(err.str());
-    }
-    //compute determinant
-    
     syclSolver::getri(*m_queue,norb,Mat1_gpu.data(),norb,ipiv.data(), workspace.data(), getri_ws).wait();
-    std::cout << "Done with getri" << std::endl;
 
-    syclBLAS::copy_n(*m_queue,Mat1_gpu.data(),Mat1_gpu.size(),Ainv_gpu.data());
+    syclBLAS::copy_n(*m_queue,Mat1_gpu.data(),Mat1_gpu.size(),Ainv_gpu.device_data()).wait();
   }
 };
 } // namespace qmcplusplus

@@ -18,9 +18,8 @@
 #include "OMPTarget/OMPallocator.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
-#include "CPU/SIMD/inner_product.hpp"
-//#include "QMCWaveFunctions/Fermion/mklSolverInverter.hpp"
 #include "SYCL/syclBLAS.hpp"
+//#include "QMCWaveFunctions/Fermion/mklSolverInverter.hpp"
 #include "mklSolverInverter.hpp"
 #include "SYCL/mkl.hpp"
 
@@ -32,14 +31,14 @@ void test_inverse(const std::int64_t M)
 {
   sycl::queue* handle=get_default_queue();
 
-  Matrix<T> A(M,M);
-  Matrix<T> B(M,M);
+  Matrix<T> A(M,M); 
+  Matrix<T> B(M,M); //for validation
 
-  { //intialize B on host with random numbers
+  { 
     std::mt19937 rng;
     std::uniform_real_distribution<T> udist{T(-0.5),T(0.5)}; 
     std::generate_n(B.data(),B.size(),[&]() { return udist(rng);});
-    simd::transpose(B.data(),M,B.cols(),A.data(),M,A.cols());
+    std::copy_n(B.data(), B.size(), A.data());
   }
 
   mklSolverInverter<T_FP> diag_eng;
@@ -56,6 +55,7 @@ void test_inverse(const std::int64_t M)
   //check the identity
   Matrix<T> C(M,M);
   syclBLAS::gemm('T', 'N', M, M, M, 1.0, B.data(), M, A.data(), M, 0.0, C.data(),M);
+
   for(int i=0; i<M; ++i)
   {
     for(int j=0; j<M; ++j)
@@ -71,9 +71,8 @@ TEST_CASE("OmpSYCL mklSolverInverter", "[SYCL]")
 {
   const int M           = 16;
 
-  //// Non-batched test
-  //std::cout << "Testing Inverse for miaxed precision " << std::endl;
-  //test_inverse<float,double>(M);
+  std::cout << "Testing Inverse for miaxed precision " << std::endl;
+  test_inverse<float,double>(M);
 
   std::cout << "Testing Inverse for double double " << std::endl;
   test_inverse<double,double>(M);
