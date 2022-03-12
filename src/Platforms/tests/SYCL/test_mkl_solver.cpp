@@ -19,9 +19,9 @@
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
 #include "SYCL/syclBLAS.hpp"
+#include "CPU/BLAS.hpp"
 //#include "QMCWaveFunctions/Fermion/mklSolverInverter.hpp"
 #include "mklSolverInverter.hpp"
-#include "SYCL/mkl.hpp"
 
 namespace qmcplusplus
 {
@@ -54,7 +54,7 @@ void test_inverse(const std::int64_t M)
 
   //check the identity
   Matrix<T> C(M,M);
-  syclBLAS::gemm('T', 'N', M, M, M, 1.0, B.data(), M, A.data(), M, 0.0, C.data(),M);
+  BLAS::gemm('T', 'N', M, M, M, 1.0, B.data(), M, A.data(), M, 0.0, C.data(),M);
 
   for(int i=0; i<M; ++i)
   {

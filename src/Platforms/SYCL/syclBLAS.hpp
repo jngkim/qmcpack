@@ -15,7 +15,6 @@
 
 #include <complex>
 #include <CL/sycl.hpp>
-#include "mkl.h"
 #include "oneapi/mkl/blas.hpp"
 
 namespace qmcplusplus
