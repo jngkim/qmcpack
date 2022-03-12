@@ -20,9 +20,7 @@
 #include "SYCL/syclBLAS.hpp"
 #include <OhmmsPETE/OhmmsVector.h>
 #include <OhmmsPETE/OhmmsMatrix.h>
-//#include <CPU/BLAS.hpp>
-//#include "oneapi/mkl/blas.hpp"
-#include "SYCL/mkl.hpp"
+#include "CPU/BLAS.hpp"
 
 namespace qmcplusplus
 {
@@ -72,9 +70,9 @@ void test_gemv(const int M_b, const int N_b, const char trans)
   C.updateFrom();
 
   if (trans == 'T')
-    syclBLAS::gemv_trans(M_b, N_b, B.data(), A.data(), D.data());
+    BLAS::gemv_trans(M_b, N_b, B.data(), A.data(), D.data());
   else
-    syclBLAS::gemv(M_b, N_b, B.data(), A.data(), D.data());
+    BLAS::gemv(M_b, N_b, B.data(), A.data(), D.data());
 
   for (int index = 0; index < M; index++)
     CHECK(C[index] == D[index]);
@@ -167,9 +165,9 @@ void test_gemv_batched(const int M_b, const int N_b, const char trans, const int
   {
     Cs[batch].updateFrom();
     if (trans == 'T')
-      syclBLAS::gemv_trans(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
+      BLAS::gemv_trans(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
     else
-      syclBLAS::gemv(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
+      BLAS::gemv(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
 
     // Check results
     for (int index = 0; index < M; index++)
@@ -260,9 +258,9 @@ void test_gemv_batched_pinned(const int M_b, const int N_b, const char trans, co
   {
     Cs[batch].updateFrom();
     if (trans == 'T')
-      syclBLAS::gemv_trans(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
+      BLAS::gemv_trans(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
     else
-      syclBLAS::gemv(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
+      BLAS::gemv(M_b, N_b, Bs[batch].data(), As[batch].data(), Ds[batch].data());
 
     // Check results
     for (int index = 0; index < M; index++)
@@ -329,7 +327,7 @@ void test_ger(const int M, const int N, const int incx, const int incy)
   T alpha(1);
   syclBLAS::ger(*handle, M, M, alpha, X.device_data(), incx, Y.device_data(), incy, C.device_data(),M).wait();
 
-  syclBLAS::ger(M, M, alpha, X.data(), incx, Y.data(), incy, D.data(),M);
+  BLAS::ger(M, M, alpha, X.data(), incx, Y.data(), incy, D.data(),M);
 
   C.updateFrom();
 
@@ -420,7 +418,7 @@ void test_ger_batched(const int M, const int N, const int incx, const int incy, 
   {
     Cs[batch].updateFrom();
 
-    syclBLAS::ger(M, M, alpha[batch], As[batch].data(), incx, Bs[batch].data(), incy, Ds[batch].data(),M);
+    BLAS::ger(M, M, alpha[batch], As[batch].data(), incx, Bs[batch].data(), incy, Ds[batch].data(),M);
 
     for (int j = 0; j < M; j++)
       for (int i = 0; i < N; i++)
