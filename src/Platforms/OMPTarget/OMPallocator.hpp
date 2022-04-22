@@ -23,6 +23,8 @@
 
 #if defined(QMC_OFFLOAD_MEM_ASSOCIATED)
 #include <CUDA/CUDAruntime.hpp>
+#endif
+#if defined(ENABLE_OFFLOAD)
 #include <omp.h>
 #endif
 
@@ -167,6 +169,48 @@ struct qmc_allocator_traits<OMPallocator<T, HostAllocator>>
       dev_ptr[to + i] = dev_ptr[from + i];
   }
 };
+
+#if defined(ENABLE_OFFLOAD)
+template<typename T, class ULPHA = std::allocator<T>>
+struct OMPHostAllocator : public ULPHA
+{
+  using value_type    = typename ULPHA::value_type;
+  using size_type     = typename ULPHA::size_type;
+  using pointer       = typename ULPHA::pointer;
+  using const_pointer = typename ULPHA::const_pointer;
+
+  OMPHostAllocator() = default;
+  template<class U, class V>
+  OMPHostAllocator(const OMPHostAllocator<U, V>&)
+  {}
+
+  template<class U, class V>
+  struct rebind
+  {
+    using other = OMPHostAllocator<U, V>;
+  };
+
+  value_type* allocate(std::size_t n)
+  {
+    constexpr int dev_id=0;
+    value_type *pt = static_cast<T*>(omp_target_alloc_host(n * sizeof(T), dev_id));
+    OMPallocator_device_mem_allocated += n * sizeof(T);
+    return pt;
+  }
+
+  void deallocate(value_type* pt, std::size_t n)
+  {
+    OMPallocator_device_mem_allocated -= n * sizeof(T);
+    constexpr int dev_id=0;
+    omp_target_free(pt,dev_id);
+  }
+};
+#else
+template<typename T, class ULPHA = std::allocator<T>>
+using OMPHostAllocator = OMPallocator<T,ULPHA>;
+
+#endif
+
 
 } // namespace qmcplusplus
 #endif

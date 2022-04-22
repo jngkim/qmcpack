@@ -21,6 +21,7 @@ namespace qmcplusplus
 {
 template<typename T>
 using OffloadAllocator = OMPallocator<T, aligned_allocator<T>>;
+
 template<typename T>
 using OffloadPinnedAllocator = OMPallocator<T, PinnedAlignedAllocator<T>>;
 } // namespace qmcplusplus
