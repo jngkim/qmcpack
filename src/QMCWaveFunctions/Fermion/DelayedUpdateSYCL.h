@@ -19,7 +19,7 @@
 #include "QMCWaveFunctions/detail/SYCL/sycl_determinant_helper.hpp"
 #include "DiracMatrix.h"
 #include "oneapi/mkl/blas.hpp"
-//#define SYCL_BLOCKING
+#define SYCL_BLOCKING
 
 namespace qmcplusplus
 {
@@ -269,12 +269,12 @@ public:
       auto u_ = m_queue->memcpy(U_gpu.data(), U.data(), norb * delay_count * sizeof(T));
       auto b_ = m_queue->memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T));
 
-      oneapi::mkl::blas::gemm(*m_queue, trans, nontrans, 
+      auto g_ = oneapi::mkl::blas::gemm(*m_queue, trans, nontrans, 
                               delay_count, norb, norb, cone, U_gpu.data(),
                               norb, Ainv_gpu.data(), norb, czero, temp_gpu.data(), 
-                              lda_Binv, {u_} ).wait();
+                              lda_Binv, {u_} );
 
-      u_ = applyW_stageV_sycl(*m_queue, delay_list.data(), delay_count, 
+      u_ = applyW_stageV_sycl(*m_queue, {g_}, delay_list.data(), delay_count, 
                               temp_gpu.data(), norb, temp_gpu.cols(), V_gpu.data(), Ainv_gpu.data());
 
       b_ = oneapi::mkl::blas::gemm(*m_queue, nontrans, nontrans, norb, delay_count, delay_count, cone,
