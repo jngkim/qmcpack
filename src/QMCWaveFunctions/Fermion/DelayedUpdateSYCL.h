@@ -215,11 +215,11 @@ public:
 
 #ifdef SYCL_BLOCKING
       syclBLAS::gemm(m_queue_, 'N', 'N', norb, norb, delay_count, -cone, U_gpu.data(), norb, temp_gpu.data(), lda_Binv,
-                     cone, Ainv_gpu.data(), norb, {u_event, temp_v_event})
+                     cone, Ainv_gpu.data(), norb, {u_event})
           .wait();
 #else
       ainv_event_ = syclBLAS::gemm(m_queue_, 'N', 'N', norb, norb, delay_count, -cone, U_gpu.data(), norb,
-                                   temp_gpu.data(), lda_Binv, cone, Ainv_gpu.data(), norb, {u_event, temp_v_event});
+                                   temp_gpu.data(), lda_Binv, cone, Ainv_gpu.data(), norb, {u_event});
 #endif
 
       clearDelayCount();
