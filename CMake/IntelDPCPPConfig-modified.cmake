@@ -265,7 +265,7 @@ SYCL_FEATURE_TEST_BUILD(${TEST_SRC_FILE} ${TEST_EXE})
 SYCL_FEATURE_TEST_RUN(${TEST_EXE})
 
 # Extract test output for information
-SYCL_FEATURE_TEST_EXTRACT(${test_output})
+#SYCL_FEATURE_TEST_EXTRACT(${test_output})
 
 # As per specification, all the SYCL compatible compilers should
 # define macro  SYCL_LANGUAGE_VERSION
