@@ -210,7 +210,7 @@ sycl::event transpose(sycl::queue& q,
                     unsigned xth=item.get_local_id(1);
                     unsigned yth=item.get_local_id(0);
 
-                    tile[yth][xth] = in[(y)*lda + x];
+                    if(x<n && y<m) tile[yth][xth] = in[(y)*lda + x];
                     item.barrier(sycl::access::fence_space::local_space);
 
                     x = item.get_group(0)*tile_size + xth;
@@ -247,9 +247,12 @@ sycl::event copy_n(sycl::queue &aq,
                    T2* restrict VC,
                    const std::vector<sycl::event>& events)
 {
-    return aq.parallel_for({array_size}, events, [=](sycl::id<1> id) {
+    constexpr size_t tile_size=64;
+    const size_t a_max=((array_size+tile_size-1)/tile_size)*tile_size;
+    return aq.parallel_for(sycl::range<1>{a_max}, events, [=](sycl::id<1> id) {
+        if(id<array_size)
             VC[id] = static_cast<T2>(VA[id]);
-            });
+    });
 }
 
 template sycl::event copy_n(sycl::queue &aq,
