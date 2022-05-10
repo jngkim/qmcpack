@@ -84,7 +84,7 @@ public:
 
     c_event = syclSolver::getri(m_queue,norb,Ainv_gpu.data(),norb,ipiv.data(), workspace.data(), getri_ws);
 
-    m_queue.memcpy(Ainv.data(),Ainv_gpu.data(),Ainv.size()*sizeof(TMAT), {c_event});
+    m_queue.memcpy(Ainv.data(),Ainv_gpu.data(),Ainv.size()*sizeof(TMAT), {c_event}).wait();
   }
 
   /** compute the inverse of the transpose of matrix A and its determinant value in log
@@ -122,7 +122,7 @@ public:
 
     t_event = syclBLAS::copy_n(m_queue,Mat1_gpu.data(),Mat1_gpu.size(),Ainv_gpu.data(), {c_event} );
 
-    m_queue.memcpy(Ainv.data(),Ainv_gpu.data(),Ainv.size()*sizeof(TMAT), {t_event});
+    m_queue.memcpy(Ainv.data(),Ainv_gpu.data(),Ainv.size()*sizeof(TMAT), {t_event}).wait();
   }
 };
 } // namespace qmcplusplus
