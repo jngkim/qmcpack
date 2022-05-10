@@ -38,7 +38,7 @@ std::complex<T> computeLogDet_sycl(sycl::queue& aq,
                                    int lda,
                                    const TMAT* restrict a,
                                    const Index_t* restrict pivot,
-                                   const std::vector<cl::sycl::event>& dependencies);
+                                   const std::vector<cl::sycl::event>& dependencies={});
 
 }
 #endif
