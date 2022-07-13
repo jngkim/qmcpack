@@ -18,16 +18,13 @@
 #include <vector>
 #include <memory>
 #include <CL/sycl.hpp>
-#include <omp.h>
 
 namespace qmcplusplus
 {
 struct syclDeviceInfo
 {
-  sycl::context context_;
-  sycl::device device_;
-  sycl::queue* queue_ = nullptr;
-  omp_interop_t interop_;
+  sycl::context context;
+  sycl::device device;
 };
 
 /** SYCL device manager
