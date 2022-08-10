@@ -234,9 +234,9 @@ if( "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xClang" OR
 endif()
 
 # Based on Compiler ID, add support for DPCPP
-if( "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xIntelLLVM")
-  list(PREPEND SYCL_FLAGS "--dpcpp")
-endif()
+#if( "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xIntelLLVM")
+#  list(PREPEND SYCL_FLAGS "--dpcpp")
+#endif()
 
 # TODO verify if this is needed
 # Windows: Add Exception handling

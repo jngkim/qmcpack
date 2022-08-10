@@ -1,0 +1,21 @@
+qmcpack.yaml:
+codebase:
+  files: [ src/**/*.cpp, src/**/*.hpp, src/**/*.cu, src/**/*.h, src/**/*.c]
+  exclude_files: [src/**/tests/*]
+  platforms: [ CPU, OMPT, OMPTcuda, OMPThip, OMPTsycl]
+ 
+CPU:
+  commands: build_cpu/compile_commands.json
+
+OMPT: 
+  commands: build_ompt/compile_commands.json
+
+OMPTcuda: 
+  commands: build_ompt_cuda/compile_commands.json
+
+OMPThip:
+  commands: build_ompt_hip/compile_commands.json
+
+OMPTsycl: 
+  commands: build_ompt_sycl/compile_commands.json
+

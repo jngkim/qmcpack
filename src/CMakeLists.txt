@@ -150,6 +150,6 @@ else() #{{{
   endif(BUILD_FCIQMC)
 
   add_subdirectory(QMCApp)
-  add_subdirectory(QMCTools)
+  #add_subdirectory(QMCTools)
 
 endif() #}}}
