@@ -12,6 +12,50 @@ cmake Options to create compile_commands.json for each plaform
 * OMPThip : -DENABLE_OFFLOAD=ON -DENABLE_CUDA=ON -DQMC_CUDA2HIP=ON
 * OMPTsycl : -DENABLE_OFFLOAD=ON -DOFFLOAD_TARGET=spir64 -DENABLE_SYCL=ON 
 
+## code-base investigator
+
+https://github.com/intel/code-base-investigator.git 
+
+Workaround to apply CBI to QMCPACK
+* `*.def` are sycl macro files.
+```
+$ git diff
+diff --git a/codebasin/language.py b/codebasin/language.py
+index 079fcbb..b6517f4 100644
+--- a/codebasin/language.py
++++ b/codebasin/language.py
+@@ -26,7 +26,7 @@ class FileLanguage:
+     _language_extensions['c++'] = ['.c++', '.cxx', '.cpp', '.cc',
+                                    '.hpp', '.hxx', '.h++', '.hh',
+                                    '.inc', '.inl', '.tcc', '.icc',
+-                                   '.ipp', '.cu', '.cuh', '.cl']
++                                   '.ipp', '.cu', '.cuh', '.cl' ,'.def']
+     _language_extensions['asm'] = ['.s', '.S', '.asm']
+
+     def __init__(self, filename):
+```
+* Parsing boost can be taxing
+```
+diff --git a/codebasin/preprocessor.py b/codebasin/preprocessor.py
+index f63d5dc..85b01da 100644
+--- a/codebasin/preprocessor.py
++++ b/codebasin/preprocessor.py
+@@ -1998,10 +1998,11 @@ class ExpressionEvaluator(Parser):
+             # Convert to decimal and then to integer with correct sign
+             # Preprocessor always uses 64-bit arithmetic!
+             int_value = int(value, base)
+-            if suffix and 'u' in suffix:
+-                return np.uint64(int_value)
+-            else:
+-                return np.int64(int_value)
++            #if suffix and 'u' in suffix:
++            #    return np.uint64(int_value)
++            #else:
++            #    return np.int64(int_value)
++            return int_value
+         except ParseError:
+             self.pos = initial_pos
+```
 
 
 ## CPU+OMPT+COMPcuda+OMPTsycl
