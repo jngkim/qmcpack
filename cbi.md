@@ -13,6 +13,38 @@ cmake Options to create compile_commands.json for each plaform
 * OMPTsycl : -DENABLE_OFFLOAD=ON -DOFFLOAD_TARGET=spir64 -DENABLE_SYCL=ON 
 
 
+## OMPT+COMPcuda+OMPTsycl
+```
+-------------------------------------------------
+                       Platform Set    LOC % LOC
+-------------------------------------------------
+                                 {}  29071 16.11
+                         {OMPTsycl}   1068  0.59
+                          {OMPThip}    570  0.32
+                         {OMPTcuda}   1629  0.90
+                             {OMPT}      2  0.00
+                {OMPTcuda, OMPThip}   2281  1.26
+                   {OMPTsycl, OMPT}      6  0.00
+          {OMPTcuda, OMPT, OMPThip}      6  0.00
+      {OMPTcuda, OMPTsycl, OMPThip}    130  0.07
+         {OMPTcuda, OMPTsycl, OMPT}      3  0.00
+{OMPTcuda, OMPTsycl, OMPT, OMPThip} 145689 80.73
+-------------------------------------------------
+Code Divergence: 0.02
+Unused Code (%): 16.11
+Total SLOC: 180455
+
+Distance Matrix
+----------------------------------------
+         OMPT OMPTcuda OMPThip OMPTsycl
+----------------------------------------
+    OMPT 0.00     0.03    0.02     0.01
+OMPTcuda 0.03     0.00    0.01     0.03
+ OMPThip 0.02     0.01    0.00     0.03
+OMPTsycl 0.01     0.03    0.03     0.00
+----------------------------------------
+
+```
 
 ## CPU+OMPT+COMPcuda+OMPTsycl
 
@@ -105,6 +137,31 @@ OMPTcuda 0.03 0.03     0.00    0.01     0.03
 OMPTsycl 0.01 0.01     0.03    0.03     0.00
 ---------------------------------------------
 ```
+
+## CPU w/wo MPI
+```
+--------------------------
+Platform Set    LOC % LOC
+--------------------------
+          {}  33281 18.44
+       {MPI}   1973  1.09
+       {CPU}    214  0.12
+  {MPI, CPU} 144987 80.35
+--------------------------
+Code Divergence: 0.01
+Unused Code (%): 18.44
+Total SLOC: 180455
+
+Distance Matrix
+--------------
+     CPU  MPI
+--------------
+CPU 0.00 0.01
+MPI 0.01 0.00
+--------------
+```
+
+Unused 29058 contains only 1973 MPI codes. 
 
 ## CUDA_legacy removed
 ```
@@ -218,3 +275,4 @@ index f63d5dc..85b01da 100644
          except ParseError:
              self.pos = initial_pos
 ```
+
