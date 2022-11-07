@@ -63,10 +63,10 @@ struct SYCLSharedAllocator
 
   T* allocate(std::size_t n)
   {
-    T* pt = sycl::aligned_alloc_shared<T>(ALIGN, n, getSYCLDefaultDeviceDefaultQueue());
+    T* pt = sycl::aligned_alloc_shared<T>(ALIGN, n, *getSYCLDefaultDeviceDefaultQueue());
     return pt;
   }
-  void deallocate(T* p, std::size_t) { sycl::free(p, getSYCLDefaultDeviceDefaultQueue()); }
+  void deallocate(T* p, std::size_t) { sycl::free(p, *getSYCLDefaultDeviceDefaultQueue()); }
 };
 
 template<class T1, class T2>
@@ -117,14 +117,14 @@ public:
 
   T* allocate(std::size_t n)
   {
-    T* pt = sycl::aligned_alloc_device<T>(ALIGN, n, getSYCLDefaultDeviceDefaultQueue());
+    T* pt = sycl::aligned_alloc_device<T>(ALIGN, n, *getSYCLDefaultDeviceDefaultQueue());
     SYCLallocator_device_mem_allocated += n * sizeof(T);
     return pt;
   }
 
   void deallocate(T* p, std::size_t n)
   {
-    sycl::free(p, getSYCLDefaultDeviceDefaultQueue());
+    sycl::free(p, *getSYCLDefaultDeviceDefaultQueue());
     SYCLallocator_device_mem_allocated -= n * sizeof(T);
   }
 
@@ -158,17 +158,17 @@ public:
 
   void copyToDevice(T* device_ptr, T* host_ptr, size_t n)
   {
-    getSYCLDefaultDeviceDefaultQueue().memcpy(device_ptr, host_ptr, n * sizeof(T)).wait();
+    getSYCLDefaultDeviceDefaultQueue()->memcpy(device_ptr, host_ptr, n * sizeof(T)).wait();
   }
 
   void copyFromDevice(T* host_ptr, T* device_ptr, size_t n)
   {
-    getSYCLDefaultDeviceDefaultQueue().memcpy(host_ptr, device_ptr, n * sizeof(T)).wait();
+    getSYCLDefaultDeviceDefaultQueue()->memcpy(host_ptr, device_ptr, n * sizeof(T)).wait();
   }
 
   void copyDeviceToDevice(T* to_ptr, size_t n, T* from_ptr)
   {
-    getSYCLDefaultDeviceDefaultQueue().memcpy(to_ptr, from_ptr, n * sizeof(T)).wait();
+    getSYCLDefaultDeviceDefaultQueue()->memcpy(to_ptr, from_ptr, n * sizeof(T)).wait();
   }
 };
 
@@ -231,8 +231,8 @@ struct SYCLHostAllocator
     typedef SYCLHostAllocator<U> other;
   };
 
-  T* allocate(std::size_t n) { return sycl::aligned_alloc_host<T>(ALIGN, n, getSYCLDefaultDeviceDefaultQueue()); }
-  void deallocate(T* p, std::size_t) { sycl::free(p, getSYCLDefaultDeviceDefaultQueue()); }
+  T* allocate(std::size_t n) { return sycl::aligned_alloc_host<T>(ALIGN, n, *getSYCLDefaultDeviceDefaultQueue()); }
+  void deallocate(T* p, std::size_t) { sycl::free(p, *getSYCLDefaultDeviceDefaultQueue()); }
 };
 
 template<class T1, class T2>
