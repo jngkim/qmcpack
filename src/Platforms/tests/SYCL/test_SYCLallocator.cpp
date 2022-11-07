@@ -22,7 +22,7 @@ namespace qmcplusplus
 TEST_CASE("SYCL_allocator", "[SYCL]")
 {
   // SYCLAllocator
-  sycl::queue m_queue = getSYCLDefaultDeviceDefaultQueue();
+  sycl::queue& m_queue = *getSYCLDefaultDeviceDefaultQueue();
   Vector<double, SYCLAllocator<double>> vec(1024);
   Vector<double> vec_h(1024);
 
@@ -42,7 +42,7 @@ TEST_CASE("SYCL_allocator", "[SYCL]")
 
 TEST_CASE("SYCL_host_allocator", "[SYCL]")
 {
-  sycl::queue m_queue = getSYCLDefaultDeviceDefaultQueue();
+  sycl::queue& m_queue = *getSYCLDefaultDeviceDefaultQueue();
   // SYCLHostAllocator
   Vector<double, SYCLHostAllocator<double>> vec(1024, 1);
 

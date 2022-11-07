@@ -15,10 +15,12 @@
 #include "spline2/MultiBsplineEval_OMPoffload.hpp"
 #include "QMCWaveFunctions/BsplineFactory/contraction_helper.hpp"
 #include "OMPTarget/OMPTargetMath.hpp"
-#include "QMCWaveFunctions/BsplineFactory/SplineC2RHelper.hpp"
 
 namespace qmcplusplus
 {
+template<typename ST>
+SplineC2ROMPTarget<ST>::SplineC2ROMPTarget(const SplineC2ROMPTarget& in) = default;
+
 namespace C2R
 {
 template<typename ST, typename TT>
@@ -660,23 +662,6 @@ inline void SplineC2ROMPTarget<ST>::assign_vgl_from_l(const PointType& r,
   }
 }
 
-/** assign_vgl
-   */
-template<typename ST>
-inline void SplineC2ROMPTarget<ST>::assign_vgl(const PointType& r,
-                                               ValueVector& psi,
-                                               GradVector& dpsi,
-                                               ValueVector& d2psi,
-                                               int first,
-                                               int last) const
-{
-  C2R::assign_vgl_simd(r[0],r[1],r[2],psi, dpsi, d2psi,
-                       myV.data(), myG.data(), myH.data(), myV.size(), 
-                       PrimLattice.G, GGt, 
-                       myKcart->data(), mKK->data(), mKK->size(), myKcart->capacity(),
-                       first, last, nComplexBands);
-}
-
 template<typename ST>
 void SplineC2ROMPTarget<ST>::evaluateVGL(const ParticleSet& P,
                                          const int iat,
@@ -687,15 +672,6 @@ void SplineC2ROMPTarget<ST>::evaluateVGL(const ParticleSet& P,
   const PointType& r = P.activeR(iat);
   PointType ru(PrimLattice.toUnit_floor(r));
 
-#if 0
-  {
-    //int first, last;
-    //FairDivideAligned(myV.size(), getAlignment<ST>(), omp_get_num_threads(), omp_get_thread_num(), first, last);
-    int first = 0, last = myV.size();
-    spline2::evaluate3d_vgh(SplineInst->getSplinePtr(), ru, myV, myG, myH, first, last);
-    assign_vgl(r, psi, dpsi, d2psi, first / 2, last / 2);
-  }
-#else
   const size_t ChunkSizePerTeam = 192;
   const int NumTeams            = (myV.size() + ChunkSizePerTeam - 1) / ChunkSizePerTeam;
 
@@ -761,7 +737,6 @@ void SplineC2ROMPTarget<ST>::evaluateVGL(const ParticleSet& P,
     dpsi[i][2] = results_scratch[i + padded_size * 3];
     d2psi[i]   = results_scratch[i + padded_size * 4];
   }
-#endif
 }
 
 template<typename ST>

@@ -23,7 +23,7 @@ namespace qmcplusplus
 template<typename T, typename T_FP>
 void test_inverse(const std::int64_t N)
 {
-  sycl::queue m_queue = getSYCLDefaultDeviceDefaultQueue();
+  sycl::queue& m_queue = *getSYCLDefaultDeviceDefaultQueue();
 
   syclSolverInverter<T_FP> solver;
 

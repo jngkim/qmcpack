@@ -33,7 +33,7 @@ void test_gemv(const int M_b, const int N_b, const char trans)
   using vec_t = Vector<T, Alloc>;
   using mat_t = Matrix<T, Alloc>;
 
-  sycl::queue handle = getSYCLDefaultDeviceDefaultQueue();
+  sycl::queue& handle = *getSYCLDefaultDeviceDefaultQueue();
 
   vec_t A(N);        // Input vector
   mat_t B(M_b, N_b); // Input matrix

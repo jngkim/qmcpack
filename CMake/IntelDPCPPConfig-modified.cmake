@@ -234,9 +234,9 @@ if( "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xClang" OR
 endif()
 
 # Based on Compiler ID, add support for DPCPP
-if( "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xIntelLLVM")
-  list(PREPEND SYCL_FLAGS "--dpcpp")
-endif()
+#if( "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xIntelLLVM")
+#  list(PREPEND SYCL_FLAGS "--dpcpp")
+#endif()
 
 # TODO verify if this is needed
 # Windows: Add Exception handling
@@ -253,19 +253,19 @@ set(SYCL_TEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/TESTSYCL")
 file(REMOVE_RECURSE ${SYCL_TEST_DIR})
 file(MAKE_DIRECTORY ${SYCL_TEST_DIR})
 
-# Create the test source file
-set(TEST_SRC_FILE "${SYCL_TEST_DIR}/sycl_features.cpp")
-set(TEST_EXE "${TEST_SRC_FILE}.exe")
-SYCL_FEATURE_TEST_WRITE(${TEST_SRC_FILE})
-
-# Build the test and create test executable
-SYCL_FEATURE_TEST_BUILD(${TEST_SRC_FILE} ${TEST_EXE})
-
-# Execute the test to extract information
-SYCL_FEATURE_TEST_RUN(${TEST_EXE})
-
-# Extract test output for information
-SYCL_FEATURE_TEST_EXTRACT(${test_output})
+## Create the test source file
+#set(TEST_SRC_FILE "${SYCL_TEST_DIR}/sycl_features.cpp")
+#set(TEST_EXE "${TEST_SRC_FILE}.exe")
+#SYCL_FEATURE_TEST_WRITE(${TEST_SRC_FILE})
+#
+## Build the test and create test executable
+#SYCL_FEATURE_TEST_BUILD(${TEST_SRC_FILE} ${TEST_EXE})
+#
+## Execute the test to extract information
+#SYCL_FEATURE_TEST_RUN(${TEST_EXE})
+#
+## Extract test output for information
+#SYCL_FEATURE_TEST_EXTRACT(${test_output})
 
 # As per specification, all the SYCL compatible compilers should
 # define macro  SYCL_LANGUAGE_VERSION
