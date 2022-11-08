@@ -485,6 +485,77 @@ template sycl::event transpose(sycl::queue& q,
                                int ldb,
                                const std::vector<sycl::event>& events);
 
+template<typename T1, typename T2>
+sycl::event transpose_batched(sycl::queue& q,
+                              const T1** in_batch,
+                              int m,
+                              int lda,
+                              T2* out_batch,
+                              int n,
+                              int ldb,
+                              int batch_count,
+                              const std::vector<sycl::event>& events)
+{ 
+  const size_t tile_size = 32;
+  const size_t block_rows = 8;
+  const size_t n_tiles = ((m + tile_size - 1) / tile_size);
+
+  return q.submit([&](sycl::handler& cgh) {
+#if defined(__SYCL_COMPILER_VERSION) && __SYCL_COMPILER_VERSION >= 20220928
+      sycl::local_accessor<T2, 2> tile(sycl::range<2>(tile_size,tile_size+1), cgh);
+#else
+      sycl::accessor<T2, 2, sycl::access::mode::write, sycl::access::target::local>
+      tile(sycl::range<2>(tile_size,tile_size+1), cgh);
+#endif
+      cgh.parallel_for(sycl::nd_range<3>{{static_cast<size_t>(batch_count), n_tiles*block_rows, n_tiles*tile_size}, 
+            {1,block_rows, tile_size}},
+        [=](sycl::nd_item<3> item) {
+
+        const unsigned iw  = item.get_group(0);
+        const unsigned thX = item.get_local_id(2); //threadIdx.x
+        const unsigned thY = item.get_local_id(1); //threadIdx.y
+        unsigned column = item.get_group(2) * tile_size + thX; //item.get_global_id(1);
+        unsigned row    = item.get_group(1) * tile_size + thY;
+
+        const T1* restrict in = in_batch[iw];
+	for (unsigned j = 0; j < tile_size; j += block_rows)
+          tile[thY+j][thX] = in[(row+j)*lda + column];
+
+        item.barrier(sycl::access::fence_space::local_space);
+
+        //T2* restrict out = out_batch[iw];
+        T2* restrict out = out_batch + iw * n * ldb;
+        column = item.get_group(1)*tile_size + thX;
+        if(column<n)
+        {
+          row = item.get_group(2)*tile_size + thY;
+          for (unsigned j = 0; j < tile_size; j += block_rows)
+          if(row+j < m) out[(row + j)*ldb + column] = tile[thX][thY + j];
+        }
+    });
+  });
+}
+
+template sycl::event transpose_batched(sycl::queue& q,
+                                       const float** in_batch,
+                                       int m,
+                                       int lda,
+                                       double* out_batch,
+                                       int n,
+                                       int ldb,
+                                       int batch_count,
+                                       const std::vector<sycl::event>& events);
+
+template sycl::event transpose_batched(sycl::queue& q,
+                                       const double** in_batch,
+                                       int m,
+                                       int lda,
+                                       double* out_batch,
+                                       int n,
+                                       int ldb,
+                                       int batch_count,
+                                       const std::vector<sycl::event>& events);
+
 //copy_n for mixed precision
 template<typename T1, typename T2>
 sycl::event copy_n(sycl::queue& aq,
@@ -525,6 +596,37 @@ template sycl::event copy_n(sycl::queue& aq,
                             std::complex<double>* restrict VC,
                             const std::vector<sycl::event>& events);
 
+
+template<typename T>
+sycl::event copy_batched(sycl::queue&   handle,
+                         const syclBLAS_int  m,
+                         const T**           X,
+                         const syclBLAS_int  incx,
+                         T**                 Y,
+                         const syclBLAS_int  incy,
+                         const syclBLAS_int  batch_count,
+                         const std::vector<sycl::event> &events)
+{
+  return oneapi::mkl::blas::copy_batch(handle, &m, X, &incx, Y, &incy, 1, &batch_count, events);
+}
+
+template sycl::event copy_batched(sycl::queue&   handle,
+                                  const syclBLAS_int  m,
+                                  const float**       X,
+                                  const syclBLAS_int  incx,
+                                  float**             Y,
+                                  const syclBLAS_int  incy,
+                                  const syclBLAS_int  batch_count,
+                                  const std::vector<sycl::event> &events);
+
+template sycl::event copy_batched(sycl::queue&   handle,
+                                  const syclBLAS_int  m,
+                                  const double**       X,
+                                  const syclBLAS_int  incx,
+                                  double**             Y,
+                                  const syclBLAS_int  incy,
+                                  const syclBLAS_int  batch_count,
+                                  const std::vector<sycl::event> &events);
 
 } // namespace syclBLAS
 

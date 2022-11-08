@@ -114,11 +114,32 @@ sycl::event transpose(sycl::queue& q,
                       const std::vector<sycl::event>& events = {});
 
 template<typename T1, typename T2>
+sycl::event transpose_batched(sycl::queue& q,
+                              const T1** in,
+                              int m,
+                              int lda,
+                              T2* out,
+                              int n,
+                              int ldb,
+                              int batch_count,
+                              const std::vector<sycl::event>& events = {});
+
+template<typename T1, typename T2>
 sycl::event copy_n(sycl::queue& aq,
                    const T1* VA,
                    size_t array_size,
                    T2* VC,
                    const std::vector<sycl::event>& events = {});
+
+template<typename T>
+sycl::event copy_batched(sycl::queue&   handle,
+                         const syclBLAS_int  m,
+                         const T**           X,
+                         const syclBLAS_int  incx,
+                         T**                 Y,
+                         const syclBLAS_int  incy,
+                         const syclBLAS_int  batch_count,
+                         const std::vector<sycl::event> &events ={});
 
 } // namespace syclBLAS
 
