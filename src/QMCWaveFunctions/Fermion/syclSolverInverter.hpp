@@ -86,9 +86,9 @@ public:
 
     log_value = computeLogDet_sycl<TREAL>(m_queue, norb, Ainv_gpu.cols(), Ainv_gpu.data(), ipiv.data());
 
-    c_event = syclSolver::getri(m_queue, norb, Ainv_gpu.data(), norb, ipiv.data(), workspace.data(), getri_ws);
+    auto c_event_1 = syclSolver::getri(m_queue, norb, Ainv_gpu.data(), norb, ipiv.data(), workspace.data(), getri_ws);
 
-    m_queue.memcpy(Ainv.data(), Ainv_gpu.data(), Ainv.size() * sizeof(TMAT), {c_event}).wait();
+    m_queue.memcpy(Ainv.data(), Ainv_gpu.data(), Ainv.size() * sizeof(TMAT), {c_event_1}).wait();
   }
 
   /** compute the inverse of the transpose of matrix A and its determinant value in log
@@ -127,11 +127,11 @@ public:
 
     log_value = computeLogDet_sycl<TREAL>(m_queue, norb, Mat1_gpu.cols(), Mat1_gpu.data(), ipiv.data());
 
-    c_event = syclSolver::getri(m_queue, norb, Mat1_gpu.data(), norb, ipiv.data(), workspace.data(), getri_ws);
+    auto c_event_1 = syclSolver::getri(m_queue, norb, Mat1_gpu.data(), norb, ipiv.data(), workspace.data(), getri_ws);
 
-    t_event = syclBLAS::copy_n(m_queue, Mat1_gpu.data(), Mat1_gpu.size(), Ainv_gpu.data(), {c_event});
+    auto t_event_1 = syclBLAS::copy_n(m_queue, Mat1_gpu.data(), Mat1_gpu.size(), Ainv_gpu.data(), {c_event_1});
 
-    m_queue.memcpy(Ainv.data(), Ainv_gpu.data(), Ainv.size() * sizeof(TMAT), {t_event}).wait();
+    m_queue.memcpy(Ainv.data(), Ainv_gpu.data(), Ainv.size() * sizeof(TMAT), {t_event_1}).wait();
   }
 };
 } // namespace qmcplusplus

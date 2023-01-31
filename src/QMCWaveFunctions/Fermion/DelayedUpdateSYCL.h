@@ -10,23 +10,22 @@
 // File created by: Ye Luo, yeluo@anl.gov, Argonne National Laboratory
 //////////////////////////////////////////////////////////////////////////////////////
 
-#ifndef QMCPLUSPLUS_DELAYED_UPDATE_SYCL_H
-#define QMCPLUSPLUS_DELAYED_UPDATE_SYCL_H
+#ifndef QMCPLUSPLUS_DELAYED_UPDATE_SYCL_SINGLE_QUEUE_H
+#define QMCPLUSPLUS_DELAYED_UPDATE_SYCL_SINGLE_QUEUE_H
 
 #include "OhmmsPETE/OhmmsVector.h"
 #include "OhmmsPETE/OhmmsMatrix.h"
 #include "SYCL/SYCLallocator.hpp"
 #include "SYCL/syclBLAS.hpp"
-#include "QMCWaveFunctions/detail/SYCL/sycl_determinant_helper.hpp"
+#include "detail/SYCL/sycl_determinant_helper.hpp"
 #include "DiracMatrix.h"
 #include "PrefetchedRange.h"
+#include "Platforms/DeviceManager.h"
 #include "syclSolverInverter.hpp"
-#include "DeviceManager.h"
-
-//#define SYCL_BLOCKING
 
 namespace qmcplusplus
 {
+
 /** implements delayed update on Intel GPU using SYCL
  * @tparam T base precision for most computation
  * @tparam T_FP high precision for matrix inversion, T_FP >= T
@@ -50,7 +49,7 @@ class DelayedUpdateSYCL
   // using host allocator
   Vector<int, SYCLHostAllocator<int>> delay_list;
   /// current number of delays, increase one for each acceptance, reset to 0 after updating Ainv
-  int delay_count;
+  int delay_count = 0;
 
   syclSolverInverter<T_FP> sycl_inverter_;
 
@@ -71,8 +70,8 @@ class DelayedUpdateSYCL
 
 public:
   /// default constructor
-  DelayedUpdateSYCL() : delay_count(0) { m_queue_ = DeviceManager::getGlobal().getSYCLDM().createQueueDefaultDevice(); }
-
+  DelayedUpdateSYCL() : delay_count(0), m_queue_{DeviceManager::getGlobal().getSYCLDM().createQueueDefaultDevice()}
+  {}
   ~DelayedUpdateSYCL() {}
 
   /** resize the internal storage
@@ -102,10 +101,9 @@ public:
    * @tparam TREAL real type
    */
   template<typename TREAL>
-  void invert_transpose(const Matrix<T>& logdetT, Matrix<T>& Ainv, std::complex<TREAL>& log_value)
+    void invert_transpose(const Matrix<T>& logdetT, Matrix<T>& Ainv, std::complex<TREAL>& log_value)
   {
     clearDelayCount();
-
     sycl_inverter_.invert_transpose(logdetT, Ainv, Ainv_gpu, log_value, m_queue_);
   }
 
@@ -131,13 +129,15 @@ public:
     if (!prefetched_range.checkRange(rowchanged))
     {
       const int last_row = std::min(rowchanged + Ainv_buffer.rows(), Ainv.rows());
-      m_queue_
-          .memcpy(Ainv_buffer.data(), Ainv_gpu[rowchanged], invRow.size() * (last_row - rowchanged) * sizeof(T),
-                  ainv_event_)
-          .wait();
+#if defined(ENABLE_OFFLOAD)
+      ainv_event_.wait();
+      omp_target_memcpy(Ainv_buffer.data(), Ainv_gpu[rowchanged], invRow.size() * (last_row - rowchanged) * sizeof(T), 0, 0, omp_get_initial_device(), 0);
+#else
+      m_queue_.memcpy(Ainv_buffer.data(), Ainv_gpu[rowchanged], invRow.size() * (last_row - rowchanged) * sizeof(T),
+                      ainv_event_).wait();
+#endif
       prefetched_range.setRange(rowchanged, last_row);
     }
-
     // save AinvRow to new_AinvRow
     std::copy_n(Ainv_buffer[prefetched_range.getOffset(rowchanged)], invRow.size(), invRow.data());
     if (delay_count > 0)
@@ -205,7 +205,6 @@ public:
       const int lda_Binv = Binv.cols();
 
       auto u_event = m_queue_.memcpy(U_gpu.data(), U.data(), norb * delay_count * sizeof(T));
-      auto b_event = m_queue_.memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T));
 
       auto temp_event = syclBLAS::gemm(m_queue_, 'T', 'N', delay_count, norb, norb, cone, U_gpu.data(), norb,
                                        Ainv_gpu.data(), norb, czero, temp_gpu.data(), lda_Binv, {u_event});
@@ -213,24 +212,21 @@ public:
       auto temp_v_event = applyW_stageV_sycl(m_queue_, {temp_event}, delay_list.data(), delay_count, temp_gpu.data(),
                                              norb, temp_gpu.cols(), V_gpu.data(), Ainv_gpu.data());
 
-      u_event = syclBLAS::gemm(m_queue_, 'N', 'N', norb, delay_count, delay_count, cone, V_gpu.data(), norb,
+      auto b_event = m_queue_.memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T));
+
+      auto u_event_2 = syclBLAS::gemm(m_queue_, 'N', 'N', norb, delay_count, delay_count, cone, V_gpu.data(), norb,
                                Binv_gpu.data(), lda_Binv, czero, U_gpu.data(), norb, {temp_v_event, b_event});
 
-#ifdef SYCL_BLOCKING
-      syclBLAS::gemm(m_queue_, 'N', 'N', norb, norb, delay_count, -cone, U_gpu.data(), norb, temp_gpu.data(), lda_Binv,
-                     cone, Ainv_gpu.data(), norb, {u_event})
-          .wait();
-#else
       ainv_event_ = syclBLAS::gemm(m_queue_, 'N', 'N', norb, norb, delay_count, -cone, U_gpu.data(), norb,
-                                   temp_gpu.data(), lda_Binv, cone, Ainv_gpu.data(), norb, {u_event});
-#endif
-
+                                   temp_gpu.data(), lda_Binv, cone, Ainv_gpu.data(), norb, {u_event_2});
       clearDelayCount();
     }
 
     // transfer Ainv_gpu to Ainv and wait till completion
     if (transfer_to_host)
+    {
       m_queue_.memcpy(Ainv.data(), Ainv_gpu.data(), Ainv.size() * sizeof(T), ainv_event_).wait();
+    }
   }
 };
 } // namespace qmcplusplus
