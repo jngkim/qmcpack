@@ -3,7 +3,7 @@
 topdir=`pwd`
 INSTALL_DIR=$topdir/share
 BOOST_DIR=$topdir/external
-qmcpack_home=qmcpack.main
+qmcpack_home=${topdir}
 mtag=`date "+%Y%m%d.%H%M"`
 
 if [ "$#" -eq 0 ]; then
@@ -24,6 +24,11 @@ fi
 
 if [ ! -d "external/libxml2" ] ; then
   git clone https://github.com/GNOME/libxml2.git external/libxml2
+fi
+
+# libxml2 is already built
+if [ -d ${INSTALL_DIR}/include/libxml2 ] ; then
+  cmake_libxml2="-DLibXml2_ROOT=${INSTALL_DIR}"
 fi
 
 build_hdf5() {
@@ -85,6 +90,10 @@ build_qmcpack_cpu() {
 
   cmake --build ${build_dir} --parallel
 
+}
+
+build_nodep() {
+  echo "No libraries to build"
 }
 
 for a in $targets; do
