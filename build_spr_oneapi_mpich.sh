@@ -2,7 +2,7 @@
 
 topdir=`pwd`
 INSTALL_DIR=$topdir/share
-BOOST_DIR=$topdir/external_codes
+BOOST_DIR=$topdir/external
 qmcpack_home=qmcpack.main
 mtag=`date "+%Y%m%d.%H%M"`
 
