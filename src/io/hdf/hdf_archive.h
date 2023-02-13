@@ -19,6 +19,7 @@
 #include "hdf_dataspace.h"
 #include "hdf_dataproxy.h"
 #include "hdf_error_suppression.h"
+#include "hdf_path.h"
 #include "hdf_pete.h"
 #include "hdf_stl.h"
 #include "hdf_hyperslab.h"
@@ -65,6 +66,8 @@ private:
   hid_t access_id;
   ///transfer property
   hid_t xfer_plist;
+  /// Link creation property list identifier
+  hid_t lcpl_id;
   ///FILO to handle H5Group
   std::stack<hid_t> group_id;
 
@@ -84,14 +87,15 @@ public:
    *        if false, hdf_archive is in independent IO mode
    */
   template<class Comm = Communicate*>
-  hdf_archive(Comm c, bool request_pio = false) : file_id(is_closed), access_id(H5P_DEFAULT), xfer_plist(H5P_DEFAULT)
+  hdf_archive(Comm c, bool request_pio = false)
+      : file_id(is_closed), access_id(H5P_DEFAULT), xfer_plist(H5P_DEFAULT), lcpl_id(H5P_DEFAULT)
   {
     if (!hdf_error_suppression::enabled)
       throw std::runtime_error("HDF5 library warnings and errors not suppressed from output.\n");
     set_access_plist(c, request_pio);
   }
 
-  hdf_archive() : file_id(is_closed), access_id(H5P_DEFAULT), xfer_plist(H5P_DEFAULT)
+  hdf_archive() : file_id(is_closed), access_id(H5P_DEFAULT), xfer_plist(H5P_DEFAULT), lcpl_id(H5P_DEFAULT)
   {
     if (!hdf_error_suppression::enabled)
       throw std::runtime_error("HDF5 library warnings and errors not suppressed from output.\n");
@@ -142,6 +146,35 @@ public:
    */
   bool is_group(const std::string& aname);
 
+  /** check if aname is a dataset
+   * @param aname dataset's name
+   * @return true, if aname exists and it is a dataset
+   */
+  bool is_dataset(const std::string& aname)
+  {
+    if (Mode[NOIO])
+      return true;
+    hid_t p = group_id.empty() ? file_id : group_id.top();
+    int dummy_data;
+    h5data_proxy<int> e(dummy_data);
+    return e.check_existence(p, aname);
+  }
+
+  /** check if aname is a dataset of type T
+   * @param aname group's name
+   * @return true, if aname is a dataset of type T
+   */
+  template<typename T>
+  bool is_dataset_of_type(const std::string& aname)
+  {
+    if (Mode[NOIO])
+      return true;
+    hid_t p = group_id.empty() ? file_id : group_id.top();
+    T dummy_data;
+    h5data_proxy<T> e(dummy_data);
+    return e.check_type(p, aname);
+  }
+
   /** return the top of the group stack
    */
   inline hid_t top() const { return group_id.empty() ? file_id : group_id.top(); }
@@ -157,6 +190,8 @@ public:
    * @param createit if true, group is create when missing
    */
   hid_t push(const std::string& gname, bool createit = true);
+  hid_t push(const hdf_path& gname, bool createit = true);
+
 
   inline void pop()
   {
@@ -317,7 +352,7 @@ public:
     if (Mode[NOIO])
       return;
     hid_t p       = group_id.empty() ? file_id : group_id.top();
-    herr_t status = H5Gunlink(p, aname.c_str());
+    herr_t status = H5Ldelete(p, aname.c_str(), H5P_DEFAULT);
   }
 };
 

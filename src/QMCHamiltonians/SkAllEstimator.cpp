@@ -226,13 +226,10 @@ void SkAllEstimator::registerCollectables(std::vector<ObservableHelper>& h5desc,
   if (!hdf5_out)
     return;
 
-  // Create HDF group in stat.h5 with SkAllEstimator's name
-  hid_t sgid = file.push(name_, true);
-
   // Add k-point information
-  h5desc.emplace_back("kpoints");
+  hdf_path hdf_name{name_};
+  h5desc.emplace_back(hdf_name / "kpoints");
   auto& ohKPoints = h5desc.back();
-  ohKPoints.open(file); // add to SkAll hdf group
   ohKPoints.addProperty(const_cast<std::vector<PosType>&>(ions->getSimulationCell().getKLists().kpts_cart), "value",
                         file);
 
@@ -240,20 +237,17 @@ void SkAllEstimator::registerCollectables(std::vector<ObservableHelper>& h5desc,
   std::vector<int> ng(1);
   ng[0] = NumK;
   //  modulus
-  h5desc.emplace_back("rhok_e_e");
+  h5desc.emplace_back(hdf_name / "rhok_e_e");
   auto& ohRhoKEE = h5desc.back();
   ohRhoKEE.set_dimensions(ng, my_index_);
-  ohRhoKEE.open(file); // add to SkAll hdf group
   //  real part
-  h5desc.emplace_back("rhok_e_r");
+  h5desc.emplace_back(hdf_name / "rhok_e_r");
   auto& ohRhoKER = h5desc.back();
   ohRhoKER.set_dimensions(ng, my_index_ + NumK);
-  ohRhoKER.open(file); // add to SkAll hdf group
   //  imaginary part
-  h5desc.emplace_back("rhok_e_i");
+  h5desc.emplace_back(hdf_name / "rhok_e_i");
   auto& ohRhoKEI = h5desc.back();
   ohRhoKEI.set_dimensions(ng, my_index_ + 2 * NumK);
-  ohRhoKEI.open(file); // add to SkAll hdf group
 }
 
 bool SkAllEstimator::put(xmlNodePtr cur)

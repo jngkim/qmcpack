@@ -61,11 +61,10 @@ void OperatorBase::registerObservables(std::vector<ObservableHelper>& h5desc, hd
   //exclude collectables
   if (!collect)
   {
-    h5desc.emplace_back(name_);
+    h5desc.emplace_back(hdf_path{name_});
     auto& oh = h5desc.back();
     std::vector<int> onedim(1, 1);
     oh.set_dimensions(onedim, my_index_);
-    oh.open(file);
   }
 }
 
@@ -225,19 +224,6 @@ void OperatorBase::add2Hamiltonian(ParticleSet& qp, TrialWaveFunction& psi, QMCH
 #if !defined(REMOVE_TRACEMANAGER)
 void OperatorBase::getRequiredTraces(TraceManager& tm){};
 #endif
-
-void OperatorBase::addEnergy(MCWalkerConfiguration& W, std::vector<RealType>& LocalEnergy)
-{
-  APP_ABORT("Need specialization for " + name_ +
-            "::addEnergy(MCWalkerConfiguration &W).\n Required functionality not implemented\n");
-}
-
-void OperatorBase::addEnergy(MCWalkerConfiguration& W,
-                             std::vector<RealType>& LocalEnergy,
-                             std::vector<std::vector<NonLocalData>>& Txy)
-{
-  addEnergy(W, LocalEnergy);
-}
 
 // END  FUNCTIONS //
 

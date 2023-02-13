@@ -18,6 +18,7 @@
 #include "SpinDensityNew.h"
 #include "MomentumDistribution.h"
 #include "OneBodyDensityMatrices.h"
+#include "PerParticleHamiltonianLogger.h"
 #include "QMCHamiltonians/QMCHamiltonian.h"
 #include "Message/Communicate.h"
 #include "Message/CommOperators.h"
@@ -39,7 +40,7 @@
 namespace qmcplusplus
 {
 
-using SPOMap = std::map<std::string, const std::unique_ptr<const SPOSet>>;
+using SPOMap = SPOSet::SPOMap;
 
 EstimatorManagerNew::EstimatorManagerNew(const QMCHamiltonian& ham, Communicate* c)
     : RecordCount(0), my_comm_(c), max4ascii(8), FieldWidth(20)
@@ -98,7 +99,8 @@ EstimatorManagerNew::EstimatorManagerNew(Communicate* c,
           createEstimator<MomentumDistributionInput>(est_input, pset.getTotalNum(), pset.getTwist(),
                                                      pset.getLattice()) ||
           createEstimator<OneBodyDensityMatricesInput>(est_input, pset.getLattice(), pset.getSpeciesSet(),
-                                                       twf.getSPOMap(), pset)))
+                                                       twf.getSPOMap(), pset) ||
+          createEstimator<PerParticleHamiltonianLoggerInput>(est_input, my_comm_->rank())))
       throw UniformCommunicateError(std::string(error_tag_) +
                                     "cannot construct an estimator from estimator input object.");
 
@@ -345,7 +347,7 @@ void EstimatorManagerNew::writeScalarH5()
   {
     for (int o = 0; o < h5desc.size(); ++o)
       // cheating here, remove SquaredAverageCache from API
-      h5desc[o].write(AverageCache.data(), AverageCache.data());
+      h5desc[o].write(AverageCache.data(), *h_file);
     h_file->flush();
   }
 
@@ -411,7 +413,7 @@ void EstimatorManagerNew::writeOperatorEstimators()
     if (h_file)
     {
       for (auto& op_est : operator_ests_)
-        op_est->write();
+        op_est->write(*h_file);
       h_file->flush();
     }
   }

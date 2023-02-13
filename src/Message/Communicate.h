@@ -71,12 +71,10 @@ public:
   ///constructor
   Communicate();
 
-  ///constructor from mpi3 environment
 #ifdef HAVE_MPI
-  Communicate(const mpi3::environment& env);
-
   ///constructor with communicator
   Communicate(mpi3::communicator& in_comm);
+  Communicate(mpi3::communicator&& in_comm);
 #endif
 
   /** constructor that splits in_comm
@@ -97,8 +95,9 @@ public:
 #ifdef HAVE_MPI
   void initialize(const mpi3::environment& env);
 #endif
-  /// initialize this as a node/shared-memory communicator
-  void initializeAsNodeComm(const Communicate& parent);
+  /// provide a node/shared-memory communicator from current (parent) communicator
+  Communicate NodeComm() const;
+
   void finalize();
   void barrier() const;
   void abort() const;

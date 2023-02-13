@@ -46,11 +46,10 @@ int main(int argc, char* argv[])
   int parser_err = session.applyCommandLine(argc, argv);
 #ifdef CATCH_MAIN_HAVE_MPI
   mpi3::environment env(argc, argv);
-  OHMMS::Controller->initialize(env);
+  OHMMS::Controller = new Communicate(env.world());
   if (OHMMS::Controller->rank())
     outputManager.shutOff();
-  Communicate node_comm;
-  node_comm.initializeAsNodeComm(*OHMMS::Controller);
+  Communicate node_comm{OHMMS::Controller->NodeComm()};
   // assign accelerators within a node
   qmcplusplus::DeviceManager::initializeGlobalDeviceManager(node_comm.rank(), node_comm.size());
 #else

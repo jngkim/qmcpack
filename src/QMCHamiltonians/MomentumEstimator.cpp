@@ -14,6 +14,10 @@
 
 
 #include "MomentumEstimator.h"
+
+#include <set>
+#include <string>
+
 #include "QMCWaveFunctions/TrialWaveFunction.h"
 #include "CPU/e2iphi.h"
 #include "CPU/BLAS.hpp"
@@ -21,7 +25,6 @@
 #include "Utilities/SimpleParser.h"
 #include "Particle/DistanceTable.h"
 #include "Numerics/DeterminantOperators.h"
-#include <set>
 
 namespace qmcplusplus
 {
@@ -102,10 +105,9 @@ void MomentumEstimator::registerCollectables(std::vector<ObservableHelper>& h5de
     std::vector<int> ng(1);
     //add nofk
     ng[0] = nofK.size();
-    h5desc.emplace_back("nofk");
+    h5desc.emplace_back(hdf_path{"nofk"});
     auto& h5o = h5desc.back();
     h5o.set_dimensions(ng, my_index_);
-    h5o.open(file);
     h5o.addProperty(const_cast<std::vector<PosType>&>(kPoints), "kpoints", file);
     h5o.addProperty(const_cast<std::vector<int>&>(kWeights), "kweights", file);
   }
