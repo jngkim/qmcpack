@@ -86,6 +86,7 @@ build_qmcpack_cpu() {
     -DCMAKE_C_FLAGS="-mprefer-vector-width=512 -march=sapphirerapids " \
     -DHDF5_ROOT=${INSTALL_DIR} ${cmake_libxml2} \
     -DBoost_INCLUDE_DIR=${BOOST_DIR} \
+    -DQMC_DATA=${QMC_DATA} \
     -DQMC_MIXED_PRECISION=ON 2>&1 | tee ${log_file}
 
   cmake --build ${build_dir} --parallel
@@ -96,7 +97,12 @@ build_nodep() {
   echo "No libraries to build"
 }
 
+build_clean() {
+  rm -rf share/* build/* build_*/*
+}
+
 for a in $targets; do
   build_${a}
 done
+
 build_qmcpack_cpu
