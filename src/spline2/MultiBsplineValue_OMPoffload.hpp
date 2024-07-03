@@ -95,5 +95,39 @@ inline void evaluate_v_impl_v2(const typename qmcplusplus::bspline_traits<T, 3>:
   vals[index] = val;
 }
 
+template<typename T>
+inline void evaluate_v_impl_load2(const T* restrict baseC,
+                                  unsigned xs,
+                                  unsigned ys,
+                                  unsigned zs,
+                                  const T a[4],
+                                  const T b[4],
+                                  const T c[4],
+                                  T* restrict vals,
+                                  const int index)
+{
+  //const unsigned xs = spline_m->x_stride;
+  //const unsigned ys = spline_m->y_stride;
+  //const unsigned zs = spline_m->z_stride;
+  //const T* restrict baseC = spline_m->coefs +ix*xs + iy*yz+ iz*zs + first;
+
+  std::array<T,2> sum{T{}};
+#pragma unroll 4
+  for (unsigned i=0; i<4; i++)
+#pragma unroll 4
+    for(unsigned j=0; j<4; j++)
+#pragma unroll 4
+      for(unsigned k=0; k<4; k++)
+      {
+        const unsigned off_ijk = i*xs +j*ys + k*zs;
+        const T abc = a[i]*b[j]*c[k];
+        sum[0] += abc * baseC[off_ijk + index + 0];
+        sum[1] += abc * baseC[off_ijk + index + 1];
+      }
+
+  vals[index+0]=sum[0];
+  vals[index+1]=sum[1];
+}
+
 } // namespace spline2offload
 #endif

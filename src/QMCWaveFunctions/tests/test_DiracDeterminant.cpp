@@ -18,18 +18,13 @@
 #include "QMCWaveFunctions/WaveFunctionComponent.h"
 #include "QMCWaveFunctions/Fermion/DiracDeterminant.h"
 #include "QMCWaveFunctions/tests/FakeSPO.h"
-
-#ifdef QMC_COMPLEX //This is for the spinor test.
-#include "QMCWaveFunctions/ElectronGas/ElectronGasComplexOrbitalBuilder.h"
-#endif
-
+#include "QMCWaveFunctions/ElectronGas/FreeOrbital.h"
 #include "QMCWaveFunctions/SpinorSet.h"
 
 #include <stdio.h>
 #include <string>
 
 using std::string;
-
 
 namespace qmcplusplus
 {
@@ -39,12 +34,6 @@ using ComplexType  = QMCTraits::ComplexType;
 using PosType      = QMCTraits::PosType;
 using LogValueType = std::complex<QMCTraits::QTFull::RealType>;
 using PsiValueType = QMCTraits::QTFull::ValueType;
-
-#ifdef ENABLE_CUDA
-typedef DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>> DetType;
-#else
-typedef DiracDeterminant<> DetType;
-#endif
 
 template<typename T1, typename T2>
 void check_matrix(Matrix<T1>& a, Matrix<T2>& b)
@@ -59,24 +48,23 @@ void check_matrix(Matrix<T1>& a, Matrix<T2>& b)
   }
 }
 
-TEST_CASE("DiracDeterminant_first", "[wavefunction][fermion]")
+template<typename DET>
+void test_DiracDeterminant_first(const DetMatInvertor inverter_kind)
 {
-  auto spo_init = std::make_unique<FakeSPO>();
-  spo_init->setOrbitalSetSize(3);
-  DetType ddb(std::move(spo_init));
+  auto spo_init  = std::make_unique<FakeSPO>();
+  const int norb = 3;
+  spo_init->setOrbitalSetSize(norb);
+  DET ddb(std::move(spo_init), 0, norb, 1, inverter_kind);
   auto spo = dynamic_cast<FakeSPO*>(ddb.getPhi());
-
-  int norb = 3;
-  ddb.set(0, norb);
 
   // occurs in call to registerData
   ddb.dpsiV.resize(norb);
   ddb.d2psiV.resize(norb);
 
+  const SimulationCell simulation_cell;
+  ParticleSet elec(simulation_cell);
 
-  ParticleSet elec;
-
-  elec.create(3);
+  elec.create({3});
   ddb.recompute(elec);
 
   Matrix<ValueType> b;
@@ -151,26 +139,42 @@ TEST_CASE("DiracDeterminant_first", "[wavefunction][fermion]")
   CHECK(std::real(ddb.get_log_value()) == Approx(1.9891064655));
 }
 
+TEST_CASE("DiracDeterminant_first", "[wavefunction][fermion]")
+{
+  test_DiracDeterminant_first<DiracDeterminant<>>(DetMatInvertor::HOST);
+  test_DiracDeterminant_first<DiracDeterminant<>>(DetMatInvertor::ACCEL);
+#if defined(ENABLE_CUDA)
+  test_DiracDeterminant_first<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::HOST);
+  test_DiracDeterminant_first<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+#elif defined(ENABLE_SYCL)
+  test_DiracDeterminant_first<DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::HOST);
+  test_DiracDeterminant_first<DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+#endif
+}
+
 //#define DUMP_INFO
 
-TEST_CASE("DiracDeterminant_second", "[wavefunction][fermion]")
+template<typename DET>
+void test_DiracDeterminant_second(const DetMatInvertor inverter_kind)
 {
-  auto spo_init = std::make_unique<FakeSPO>();
-  spo_init->setOrbitalSetSize(4);
-  DetType ddb(std::move(spo_init));
+  auto spo_init  = std::make_unique<FakeSPO>();
+  const int norb = 4;
+  spo_init->setOrbitalSetSize(norb);
+  DET ddb(std::move(spo_init), 0, norb, 1, inverter_kind);
   auto spo = dynamic_cast<FakeSPO*>(ddb.getPhi());
-
-  int norb = 4;
-  ddb.set(0, norb);
 
   // occurs in call to registerData
   ddb.dpsiV.resize(norb);
   ddb.d2psiV.resize(norb);
 
+  const SimulationCell simulation_cell;
+  ParticleSet elec(simulation_cell);
 
-  ParticleSet elec;
-
-  elec.create(4);
+  elec.create({4});
   ddb.recompute(elec);
 
   Matrix<ValueType> orig_a;
@@ -225,9 +229,9 @@ TEST_CASE("DiracDeterminant_second", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, a_update1, det_update1);
   PsiValueType det_ratio1 = LogToValue<ValueType>::convert(det_update1 - ddb.get_log_value());
 #ifdef DUMP_INFO
-  std::cout << "det 0 = " << std::exp(ddb.get_log_value()) << std::endl;
-  std::cout << "det 1 = " << std::exp(det_update1) << std::endl;
-  std::cout << "det ratio 1 = " << det_ratio1 << std::endl;
+  app_log() << "det 0 = " << std::exp(ddb.get_log_value()) << std::endl;
+  app_log() << "det 1 = " << std::exp(det_update1) << std::endl;
+  app_log() << "det ratio 1 = " << det_ratio1 << std::endl;
 #endif
   //double det_ratio1 = 0.178276269185;
 
@@ -242,9 +246,9 @@ TEST_CASE("DiracDeterminant_second", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, a_update2, det_update2);
   PsiValueType det_ratio2_val = LogToValue<ValueType>::convert(det_update2 - det_update1);
 #ifdef DUMP_INFO
-  std::cout << "det 1 = " << std::exp(ddb.get_log_value()) << std::endl;
-  std::cout << "det 2 = " << std::exp(det_update2) << std::endl;
-  std::cout << "det ratio 2 = " << det_ratio2 << std::endl;
+  app_log() << "det 1 = " << std::exp(ddb.get_log_value()) << std::endl;
+  app_log() << "det 2 = " << std::exp(det_update2) << std::endl;
+  app_log() << "det ratio 2 = " << det_ratio2 << std::endl;
 #endif
   //double det_ratio2_val = 0.178276269185;
   REQUIRE(det_ratio2 == ValueApprox(det_ratio2_val));
@@ -258,9 +262,9 @@ TEST_CASE("DiracDeterminant_second", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, a_update3, det_update3);
   PsiValueType det_ratio3_val = LogToValue<ValueType>::convert(det_update3 - det_update2);
 #ifdef DUMP_INFO
-  std::cout << "det 2 = " << std::exp(ddb.get_log_value()) << std::endl;
-  std::cout << "det 3 = " << std::exp(det_update3) << std::endl;
-  std::cout << "det ratio 3 = " << det_ratio3 << std::endl;
+  app_log() << "det 2 = " << std::exp(ddb.get_log_value()) << std::endl;
+  app_log() << "det 3 = " << std::exp(det_update3) << std::endl;
+  app_log() << "det ratio 3 = " << det_ratio3 << std::endl;
 #endif
   REQUIRE(det_ratio3 == ValueApprox(det_ratio3_val));
   //check_value(det_ratio3, det_ratio3_val);
@@ -271,34 +275,50 @@ TEST_CASE("DiracDeterminant_second", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, orig_a, det_update3);
 
 #ifdef DUMP_INFO
-  std::cout << "original " << std::endl;
-  std::cout << orig_a << std::endl;
-  std::cout << "block update " << std::endl;
-  std::cout << ddb.psiM << std::endl;
+  app_log() << "original " << std::endl;
+  app_log() << orig_a << std::endl;
+  app_log() << "block update " << std::endl;
+  app_log() << ddb.psiM << std::endl;
 #endif
 
   check_matrix(orig_a, ddb.psiM);
 }
 
-TEST_CASE("DiracDeterminant_delayed_update", "[wavefunction][fermion]")
+TEST_CASE("DiracDeterminant_second", "[wavefunction][fermion]")
 {
-  auto spo_init = std::make_unique<FakeSPO>();
-  spo_init->setOrbitalSetSize(4);
-  DetType ddc(std::move(spo_init));
-  auto spo = dynamic_cast<FakeSPO*>(ddc.getPhi());
+  test_DiracDeterminant_second<DiracDeterminant<>>(DetMatInvertor::HOST);
+  test_DiracDeterminant_second<DiracDeterminant<>>(DetMatInvertor::ACCEL);
+#if defined(ENABLE_CUDA)
+  test_DiracDeterminant_second<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::HOST);
+  test_DiracDeterminant_second<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+#elif defined(ENABLE_SYCL)
+  test_DiracDeterminant_second<DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+  test_DiracDeterminant_second<DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::HOST);
+#endif
+}
 
-  int norb = 4;
+template<typename DET>
+void test_DiracDeterminant_delayed_update(const DetMatInvertor inverter_kind)
+{
+  auto spo_init  = std::make_unique<FakeSPO>();
+  const int norb = 4;
+  spo_init->setOrbitalSetSize(norb);
   // maximum delay 2
-  ddc.set(0, norb, 2);
+  DET ddc(std::move(spo_init), 0, norb, 2, inverter_kind);
+  auto spo = dynamic_cast<FakeSPO*>(ddc.getPhi());
 
   // occurs in call to registerData
   ddc.dpsiV.resize(norb);
   ddc.d2psiV.resize(norb);
 
+  const SimulationCell simulation_cell;
+  ParticleSet elec(simulation_cell);
 
-  ParticleSet elec;
-
-  elec.create(4);
+  elec.create({4});
   ddc.recompute(elec);
 
   Matrix<ValueType> orig_a;
@@ -354,9 +374,9 @@ TEST_CASE("DiracDeterminant_delayed_update", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, a_update1, det_update1);
   PsiValueType det_ratio1 = LogToValue<ValueType>::convert(det_update1 - ddc.get_log_value());
 #ifdef DUMP_INFO
-  std::cout << "det 0 = " << std::exp(ddc.get_log_value()) << std::endl;
-  std::cout << "det 1 = " << std::exp(det_update1) << std::endl;
-  std::cout << "det ratio 1 = " << det_ratio1 << std::endl;
+  app_log() << "det 0 = " << std::exp(ddc.get_log_value()) << std::endl;
+  app_log() << "det 1 = " << std::exp(det_update1) << std::endl;
+  app_log() << "det ratio 1 = " << det_ratio1 << std::endl;
 #endif
   //double det_ratio1 = 0.178276269185;
 
@@ -378,9 +398,9 @@ TEST_CASE("DiracDeterminant_delayed_update", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, a_update2, det_update2);
   PsiValueType det_ratio2_val = LogToValue<ValueType>::convert(det_update2 - det_update1);
 #ifdef DUMP_INFO
-  std::cout << "det 1 = " << std::exp(ddc.get_log_value()) << std::endl;
-  std::cout << "det 2 = " << std::exp(det_update2) << std::endl;
-  std::cout << "det ratio 2 = " << det_ratio2 << std::endl;
+  app_log() << "det 1 = " << std::exp(ddc.get_log_value()) << std::endl;
+  app_log() << "det 2 = " << std::exp(det_update2) << std::endl;
+  app_log() << "det ratio 2 = " << det_ratio2 << std::endl;
 #endif
   // check ratio computed directly and the one computed by ddc with no delay
   //double det_ratio2_val = 0.178276269185;
@@ -398,9 +418,9 @@ TEST_CASE("DiracDeterminant_delayed_update", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, a_update3, det_update3);
   PsiValueType det_ratio3_val = LogToValue<ValueType>::convert(det_update3 - det_update2);
 #ifdef DUMP_INFO
-  std::cout << "det 2 = " << std::exp(ddc.get_log_value()) << std::endl;
-  std::cout << "det 3 = " << std::exp(det_update3) << std::endl;
-  std::cout << "det ratio 3 = " << det_ratio3 << std::endl;
+  app_log() << "det 2 = " << std::exp(ddc.get_log_value()) << std::endl;
+  app_log() << "det 3 = " << std::exp(det_update3) << std::endl;
+  app_log() << "det ratio 3 = " << det_ratio3 << std::endl;
 #endif
   // check ratio computed directly and the one computed by ddc with 1 delay
   REQUIRE(det_ratio3 == ValueApprox(det_ratio3_val));
@@ -415,31 +435,63 @@ TEST_CASE("DiracDeterminant_delayed_update", "[wavefunction][fermion]")
   dm.invert_transpose(scratchT, orig_a, det_update3);
 
 #ifdef DUMP_INFO
-  std::cout << "original " << std::endl;
-  std::cout << orig_a << std::endl;
-  std::cout << "delayed update " << std::endl;
-  std::cout << ddc.psiM << std::endl;
+  app_log() << "original " << std::endl;
+  app_log() << orig_a << std::endl;
+  app_log() << "delayed update " << std::endl;
+  app_log() << ddc.psiM << std::endl;
 #endif
 
   // compare all the elements of psiM in ddc and orig_a
   check_matrix(orig_a, ddc.psiM);
 }
 
-#ifdef QMC_COMPLEX
-TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
+TEST_CASE("DiracDeterminant_delayed_update", "[wavefunction][fermion]")
 {
-  typedef QMCTraits::ValueType ValueType;
-  typedef QMCTraits::PosType PosType;
-  typedef QMCTraits::GradType GradType;
-  typedef WaveFunctionComponent::LogValueType LogValueType;
-  typedef ParticleSet::ParticlePos_t ParticlePos_t;
-  typedef ParticleSet::ParticleGradient_t ParticleGradient_t;
-  typedef ParticleSet::ParticleLaplacian_t ParticleLaplacian_t;
+  test_DiracDeterminant_delayed_update<DiracDeterminant<>>(DetMatInvertor::HOST);
+  test_DiracDeterminant_delayed_update<DiracDeterminant<>>(DetMatInvertor::ACCEL);
+#if defined(ENABLE_CUDA)
+  test_DiracDeterminant_delayed_update<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::HOST);
+  test_DiracDeterminant_delayed_update<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+#elif defined(ENABLE_SYCL)
+  test_DiracDeterminant_delayed_update<DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+  //test_DiracDeterminant_delayed_update<DiracDeterminant<DelayedUpdateSYCL<ValueType, QMCTraits::QTFull::ValueType>>>(
+  //    DetMatInvertor::HOST);
+#endif
+}
+
+#ifdef QMC_COMPLEX
+template<typename DET>
+void test_DiracDeterminant_spinor_update(const DetMatInvertor inverter_kind)
+{
+  using ValueType         = QMCTraits::ValueType;
+  using PosType           = QMCTraits::PosType;
+  using GradType          = QMCTraits::GradType;
+  using LogValueType      = WaveFunctionComponent::LogValueType;
+  using ParticlePos       = ParticleSet::ParticlePos;
+  using ParticleGradient  = ParticleSet::ParticleGradient;
+  using ParticleLaplacian = ParticleSet::ParticleLaplacian;
+
+  // O2 test example from pwscf non-collinear calculation.
+  ParticleSet::ParticleLayout lattice;
+  lattice.R(0, 0) = 5.10509515;
+  lattice.R(0, 1) = -3.23993545;
+  lattice.R(0, 2) = 0.00000000;
+  lattice.R(1, 0) = 5.10509515;
+  lattice.R(1, 1) = 3.23993545;
+  lattice.R(1, 2) = 0.00000000;
+  lattice.R(2, 0) = -6.49690625;
+  lattice.R(2, 1) = 0.00000000;
+  lattice.R(2, 2) = 7.08268015;
+
   //Shamelessly stealing this from test_einset.cpp.  3 particles though.
-  ParticleSet ions_;
-  ParticleSet elec_;
+  const SimulationCell simulation_cell(lattice);
+  ParticleSet ions_(simulation_cell);
+  ParticleSet elec_(simulation_cell);
   ions_.setName("ion");
-  ions_.create(2);
+  ions_.create({2});
 
   ions_.R[0][0] = 0.00000000;
   ions_.R[0][1] = 0.00000000;
@@ -449,7 +501,7 @@ TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
   ions_.R[1][2] = -1.08659253;
 
   elec_.setName("elec");
-  elec_.create(3);
+  elec_.create({3});
   elec_.R[0][0] = 0.1;
   elec_.R[0][1] = -0.3;
   elec_.R[0][2] = 1.0;
@@ -460,21 +512,10 @@ TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
   elec_.R[2][1] = 0.2;
   elec_.R[2][2] = 0.3;
 
-  elec_.spins[0]   = 0.0;
-  elec_.spins[1]   = 0.2;
-  elec_.spins[2]   = 0.4;
-  elec_.is_spinor_ = true;
-
-  // O2 test example from pwscf non-collinear calculation.
-  elec_.Lattice.R(0, 0) = 5.10509515;
-  elec_.Lattice.R(0, 1) = -3.23993545;
-  elec_.Lattice.R(0, 2) = 0.00000000;
-  elec_.Lattice.R(1, 0) = 5.10509515;
-  elec_.Lattice.R(1, 1) = 3.23993545;
-  elec_.Lattice.R(1, 2) = 0.00000000;
-  elec_.Lattice.R(2, 0) = -6.49690625;
-  elec_.Lattice.R(2, 1) = 0.00000000;
-  elec_.Lattice.R(2, 2) = 7.08268015;
+  elec_.spins[0] = 0.0;
+  elec_.spins[1] = 0.2;
+  elec_.spins[2] = 0.4;
+  elec_.setSpinor(true);
 
   SpeciesSet& tspecies       = elec_.getSpeciesSet();
   int upIdx                  = tspecies.addSpecies("u");
@@ -487,8 +528,7 @@ TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
   // </steal>
 
 
-  QMCTraits::IndexType nelec = elec_.R.size();
-  QMCTraits::IndexType norb  = 3;
+  const auto nelec = elec_.R.size();
   //Our test case is going to be three electron gas orbitals distinguished by 3 different kpoints.
   //Independent SPO's for the up and down channels.
   //
@@ -501,36 +541,22 @@ TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
   kup[1] = PosType(0.1, 0.2, 0.3);
   kup[2] = PosType(0.4, 0.5, 0.6);
 
-  k2up.resize(nelec);
-  //For some goofy reason, EGOSet needs to be initialized with:
-  //1.) A k-vector list (fine).
-  //2.) A list of -|k|^2.  To save on expensive - sign multiplication apparently.
-  k2up[0] = -dot(kup[0], kup[0]);
-  k2up[1] = -dot(kup[1], kup[1]);
-  k2up[2] = -dot(kup[2], kup[2]);
-
   kdn.resize(nelec);
   kdn[0] = PosType(0, 0, 0);
   kdn[1] = PosType(-0.1, 0.2, -0.3);
   kdn[2] = PosType(0.4, -0.5, 0.6);
 
-  k2dn.resize(nelec);
-  k2dn[0] = -dot(kdn[0], kdn[0]);
-  k2dn[1] = -dot(kdn[1], kdn[1]);
-  k2dn[2] = -dot(kdn[2], kdn[2]);
-
-  auto spo_up = std::make_unique<EGOSet>(kup, k2up);
-  auto spo_dn = std::make_unique<EGOSet>(kdn, k2dn);
+  auto spo_up = std::make_unique<FreeOrbital>(kup);
+  auto spo_dn = std::make_unique<FreeOrbital>(kdn);
 
   auto spinor_set = std::make_unique<SpinorSet>();
   spinor_set->set_spos(std::move(spo_up), std::move(spo_dn));
 
-  DetType dd(std::move(spinor_set));
-  dd.resize(nelec, norb);
-  app_log() << " nelec=" << nelec << " norb=" << norb << std::endl;
+  DET dd(std::move(spinor_set), 0, nelec, 1, inverter_kind);
+  app_log() << " nelec=" << nelec << std::endl;
 
-  ParticleGradient_t G;
-  ParticleLaplacian_t L;
+  ParticleGradient G;
+  ParticleLaplacian L;
   ParticleAttrib<ComplexType> SG;
 
   G.resize(nelec);
@@ -651,6 +677,18 @@ TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
   REQUIRE(G[1][1] == ComplexApprox(grad_new[1]));
   REQUIRE(G[1][2] == ComplexApprox(grad_new[2]));
   REQUIRE(SG[1] == ComplexApprox(spingrad_new));
+}
+
+TEST_CASE("DiracDeterminant_spinor_update", "[wavefunction][fermion]")
+{
+  test_DiracDeterminant_spinor_update<DiracDeterminant<>>(DetMatInvertor::HOST);
+  test_DiracDeterminant_spinor_update<DiracDeterminant<>>(DetMatInvertor::ACCEL);
+#ifdef ENABLE_CUDA
+  test_DiracDeterminant_spinor_update<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::HOST);
+  test_DiracDeterminant_spinor_update<DiracDeterminant<DelayedUpdateCUDA<ValueType, QMCTraits::QTFull::ValueType>>>(
+      DetMatInvertor::ACCEL);
+#endif
 }
 #endif
 

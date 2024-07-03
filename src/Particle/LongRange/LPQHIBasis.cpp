@@ -143,6 +143,7 @@ LPQHIBasis::mRealType LPQHIBasis::c(int m, mRealType k) const
   mRealType sum = 0.0;
   if (i == 0)
   {
+#pragma omp simd reduction(+:sum)
     for (int n = 0; n <= 5; n++)
     {
       sum += S(alpha, n) * (Dplus(i, k, n));
@@ -150,6 +151,7 @@ LPQHIBasis::mRealType LPQHIBasis::c(int m, mRealType k) const
   }
   else if (i == (NumKnots - 1))
   {
+#pragma omp simd reduction(+:sum)
     for (int n = 0; n <= 5; n++)
     {
       mRealType sign = ((alpha + n) & 1) ? -1.0 : 1.0;
@@ -158,6 +160,7 @@ LPQHIBasis::mRealType LPQHIBasis::c(int m, mRealType k) const
   }
   else
   {
+#pragma omp simd reduction(+:sum)
     for (int n = 0; n <= 5; n++)
     {
       mRealType sign = ((alpha + n) & 1) ? -1.0 : 1.0;

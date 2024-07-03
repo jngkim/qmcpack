@@ -29,6 +29,7 @@
 #include <type_traits>
 
 #include "Configuration.h"
+#include "Particle/HDFWalkerIO.h"
 #include "Pools/PooledData.h"
 #include "Utilities/TimerManager.h"
 #include "Utilities/ScopedProfiler.h"
@@ -40,13 +41,15 @@
 #include "ProjectData.h"
 #include "MultiWalkerDispatchers.h"
 #include "DriverWalkerTypes.h"
+#include "TauParams.hpp"
+#include "Particle/MCCoords.hpp"
+#include <algorithm>
 
 class Communicate;
 
 namespace qmcplusplus
 {
 //forward declarations: Do not include headers if not needed
-class HDFWalkerOutput;
 class TraceManager;
 class EstimatorManagerNew;
 class TrialWaveFunction;
@@ -99,6 +102,9 @@ public:
   std::bitset<QMC_MODE_MAX> qmc_driver_mode_;
 
 protected:
+  /// inject additional barrier and measure load imbalance.
+  void measureImbalance(const std::string& tag) const;
+  /// end of a block operations. Aggregates statistics across all MPI ranks and write to disk.
   void endBlock();
   /** This is a data structure strictly for QMCDriver and its derived classes
    *
@@ -116,6 +122,8 @@ public:
   /// Constructor.
   QMCDriverNew(const ProjectData& project_data,
                QMCDriverInput&& input,
+               const std::optional<EstimatorManagerInput>& global_emi,
+               WalkerConfigurations& wc,
                MCPopulation&& population,
                const std::string timer_prefix,
                Communicate* comm,
@@ -137,9 +145,7 @@ public:
   * @param nwalkers number of walkers to add
   *
   */
-  void makeLocalWalkers(int nwalkers,
-                        RealType reserve,
-                        const ParticleAttrib<TinyVector<QMCTraits::RealType, 3>>& positions);
+  void makeLocalWalkers(int nwalkers, RealType reserve);
 
   DriftModifierBase& get_drift_modifier() const { return *drift_modifier_; }
 
@@ -180,28 +186,32 @@ public:
 
   void putWalkers(std::vector<xmlNodePtr>& wset) override;
 
-  ///set global offsets of the walkers
-  void setWalkerOffsets();
-
-  inline RefVector<RandomGenerator_t> getRngRefs() const
+  inline RefVector<RandomGenerator> getRngRefs() const
   {
-    RefVector<RandomGenerator_t> RngRefs;
+    RefVector<RandomGenerator> RngRefs;
     for (int i = 0; i < Rng.size(); ++i)
       RngRefs.push_back(*Rng[i]);
     return RngRefs;
   }
 
   // ///return the random generators
-  //       inline std::vector<std::unique_ptr RandomGenerator_t*>& getRng() { return Rng; }
+  //       inline std::vector<std::unique_ptr RandomGenerator*>& getRng() { return Rng; }
 
   ///return the i-th random generator
-  inline RandomGenerator_t& getRng(int i) override { return (*Rng[i]); }
+  inline RandomGenerator& getRng(int i) override { return (*Rng[i]); }
 
+  /** intended for logging output and debugging
+   *  you should base behavior on type preferably at compile time or if
+   *  necessary at runtime using and protected by dynamic cast.
+   *  QMCType is primarily for use in the debugger.
+   */
   std::string getEngineName() override { return QMCType; }
   unsigned long getDriverMode() override { return qmc_driver_mode_.to_ulong(); }
 
   IndexType get_num_living_walkers() const { return population_.get_walkers().size(); }
   IndexType get_num_dead_walkers() const { return population_.get_dead_walkers().size(); }
+
+  const QMCDriverInput& getQMCDriverInput() const { return qmcdriver_input_; }
 
   /** @ingroup Legacy interface to be dropped
    *  @{
@@ -237,6 +247,39 @@ public:
 
   void putTraces(xmlNodePtr txml) override {}
   void requestTraces(bool allow_traces) override {}
+
+  // scales a MCCoords by sqrtTau. Chooses appropriate taus by CT
+  template<typename RT, CoordsType CT>
+  static void scaleBySqrtTau(const TauParams<RT, CT>& taus, MCCoords<CT>& coords)
+  {
+    for (auto& pos : coords.positions)
+      pos *= taus.sqrttau;
+    if constexpr (CT == CoordsType::POS_SPIN)
+      for (auto& spin : coords.spins)
+        spin *= taus.spin_sqrttau;
+  }
+
+  /** calculates Green Function from displacements stored in MCCoords
+     * [param, out] log_g
+     */
+  template<typename RT, CoordsType CT>
+  static void computeLogGreensFunction(const MCCoords<CT>& coords,
+                                       const TauParams<RT, CT>& taus,
+                                       std::vector<QMCTraits::RealType>& log_gb)
+  {
+    assert(coords.positions.size() == log_gb.size());
+    std::transform(coords.positions.begin(), coords.positions.end(), log_gb.begin(),
+                   [halfovertau = taus.oneover2tau](const QMCTraits::PosType& pos) {
+                     return -halfovertau * dot(pos, pos);
+                   });
+    if constexpr (CT == CoordsType::POS_SPIN)
+      std::transform(coords.spins.begin(), coords.spins.end(), log_gb.begin(), log_gb.begin(),
+                     [halfovertau = taus.spin_oneover2tau](const QMCTraits::FullPrecRealType& spin,
+                                                           const QMCTraits::RealType& loggb) {
+                       return loggb - halfovertau * spin * spin;
+                     });
+  }
+
   /** }@ */
 
 protected:
@@ -286,6 +329,10 @@ protected:
     NewTimer& hamiltonian_timer;
     NewTimer& collectables_timer;
     NewTimer& estimators_timer;
+    NewTimer& imbalance_timer;
+    NewTimer& endblock_timer;
+    NewTimer& startup_timer;
+    NewTimer& production_timer;
     NewTimer& resource_timer;
     DriverTimers(const std::string& prefix)
         : checkpoint_timer(*timer_manager.createTimer(prefix + "CheckPoint", timer_level_medium)),
@@ -297,11 +344,15 @@ protected:
           hamiltonian_timer(*timer_manager.createTimer(prefix + "Hamiltonian", timer_level_medium)),
           collectables_timer(*timer_manager.createTimer(prefix + "Collectables", timer_level_medium)),
           estimators_timer(*timer_manager.createTimer(prefix + "Estimators", timer_level_medium)),
+          imbalance_timer(*timer_manager.createTimer(prefix + "Imbalance", timer_level_medium)),
+          endblock_timer(*timer_manager.createTimer(prefix + "BlockEndDataAggregation", timer_level_medium)),
+          startup_timer(*timer_manager.createTimer(prefix + "Startup", timer_level_medium)),
+          production_timer(*timer_manager.createTimer(prefix + "Production", timer_level_medium)),
           resource_timer(*timer_manager.createTimer(prefix + "Resources", timer_level_medium))
     {}
   };
 
-  const QMCDriverInput qmcdriver_input_;
+  QMCDriverInput qmcdriver_input_;
 
   /** @ingroup Driver mutable input values
    *
@@ -350,8 +401,6 @@ protected:
 
   ///type of qmc: assigned by subclasses
   const std::string QMCType;
-  ///root of all the output files
-  std::string root_name_;
 
   /** the entire (on node) walker population
    * it serves VMCBatch and DMCBatch right now but will be polymorphic
@@ -376,23 +425,23 @@ protected:
   std::unique_ptr<EstimatorManagerNew> estimator_manager_;
 
   ///record engine for walkers
-  HDFWalkerOutput* wOut;
+  std::unique_ptr<HDFWalkerOutput> wOut;
 
   /** Per crowd move contexts, this is where the DistanceTables etc. reside
    */
   std::vector<std::unique_ptr<ContextForSteps>> step_contexts_;
 
   ///Random number generators
-  UPtrVector<RandomGenerator_t> Rng;
+  UPtrVector<RandomGenerator> Rng;
 
   ///a list of mcwalkerset element
   std::vector<xmlNodePtr> mcwalkerNodePtr;
 
   ///temporary storage for drift
-  ParticleSet::ParticlePos_t drift;
+  ParticleSet::ParticlePos drift;
 
   ///temporary storage for random displacement
-  ParticleSet::ParticlePos_t deltaR;
+  ParticleSet::ParticlePos deltaR;
 
   // ///alternate method of setting QMC run parameters
   // IndexType nStepsBetweenSamples;
@@ -417,6 +466,12 @@ protected:
 
   /// project info for accessing global fileroot and series id
   const ProjectData& project_data_;
+
+  // reference to the captured WalkerConfigurations
+  WalkerConfigurations& walker_configs_ref_;
+
+  /// update the global offsets of walker configurations after active walkers being touched.
+  static void setWalkerOffsets(WalkerConfigurations&, Communicate* comm);
 
 private:
   friend std::ostream& operator<<(std::ostream& o_stream, const QMCDriverNew& qmcd);

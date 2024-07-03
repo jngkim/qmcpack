@@ -31,9 +31,9 @@
 #include "formic/utils/lmyengine/engine.h"
 #endif
 
+#include "EngineHandle.h"
 namespace qmcplusplus
 {
-class MCWalkerConfiguration;
 class DescentEngine;
 
 /** @ingroup QMCDrivers
@@ -68,9 +68,10 @@ public:
     SUM_INDEX_SIZE
   };
 
+  using EffectiveWeight = QMCTraits::QTFull::RealType;
 
   ///Constructor.
-  QMCCostFunctionBase(MCWalkerConfiguration& w, TrialWaveFunction& psi, QMCHamiltonian& h, Communicate* comm);
+  QMCCostFunctionBase(ParticleSet& w, TrialWaveFunction& psi, QMCHamiltonian& h, Communicate* comm);
 
   ///Destructor
   ~QMCCostFunctionBase() override;
@@ -106,7 +107,10 @@ public:
   ///reset the wavefunction
   virtual void resetPsi(bool final_reset = false) = 0;
 
-  inline void getParameterTypes(std::vector<int>& types) { return OptVariablesForPsi.getParameterTypeList(types); }
+  inline void getParameterTypes(std::vector<int>& types) const
+  {
+    return OptVariablesForPsi.getParameterTypeList(types);
+  }
 
   ///dump the current parameters and other report
   void Report() override;
@@ -140,8 +144,9 @@ public:
 
   virtual void getConfigurations(const std::string& aroot) = 0;
 
-  virtual void checkConfigurations() = 0;
-
+  //Legacy drivers currently use both checkConfigurations and engine_checkConfigurations with duplicated code
+  //Providing an EngineHandle object to the batched drivers allows both cases to be handled in one function
+  virtual void checkConfigurations(EngineHandle& handle) = 0;
 #ifdef HAVE_LMY_ENGINE
   virtual void engine_checkConfigurations(cqmc::engine::LMYEngine<Return_t>* EngineObj,
                                           DescentEngine& descentEngineObj,
@@ -149,7 +154,7 @@ public:
 
 #endif
 
-  void setRng(RefVector<RandomGenerator_t> r);
+  void setRng(RefVector<RandomGenerator> r);
 
   inline bool getneedGrads() const { return needGrads; }
 
@@ -168,10 +173,10 @@ public:
   }
 
 protected:
-  ///walker ensemble
-  MCWalkerConfiguration& W;
+  ///Particle set
+  ParticleSet& W;
 
-  ///trial function
+  ///Trial function
   TrialWaveFunction& Psi;
 
   ///Hamiltonian
@@ -202,8 +207,6 @@ protected:
   Return_rt Etarget;
   ///real target energy with the Correlation Factor
   Return_rt EtargetEff;
-  ///effective number of walkers
-  Return_rt NumWalkersEff;
   ///fraction of the number of walkers below which the costfunction becomes invalid
   Return_rt MinNumWalkers;
   ///maximum weight beyond which the weight is set to 1
@@ -271,8 +274,8 @@ protected:
   std::string RootName;
 
   ///Random number generators
-  UPtrVector<RandomGenerator_t> RngSaved;
-  std::vector<RandomGenerator_t*> MoverRng;
+  UPtrVector<RandomGenerator> RngSaved;
+  std::vector<RandomGenerator*> MoverRng;
   std::string includeNonlocalH;
 
 
@@ -292,20 +295,28 @@ protected:
   //vector<std::vector<vector<Return_t> >* > DerivRecords;
   //vector<std::vector<vector<Return_t> >* > HDerivRecords;
 
-  typedef ParticleSet::ParticleGradient_t ParticleGradient_t;
-  typedef ParticleSet::ParticleLaplacian_t ParticleLaplacian_t;
+  using ParticleGradient  = ParticleSet::ParticleGradient;
+  using ParticleLaplacian = ParticleSet::ParticleLaplacian;
   ///** Fixed  Gradients , \f$\nabla\ln\Psi\f$, components */
-  std::vector<ParticleGradient_t*> dLogPsi;
+  std::vector<ParticleGradient*> dLogPsi;
   ///** Fixed  Laplacian , \f$\nabla^2\ln\Psi\f$, components */
-  std::vector<ParticleLaplacian_t*> d2LogPsi;
+  std::vector<ParticleLaplacian*> d2LogPsi;
   ///stream for debug
   std::ostream* debug_stream;
 
   bool checkParameters();
   void updateXmlNodes();
 
+  /// Flag on whether the variational parameter override is output to the new wavefunction
+  bool do_override_output;
 
-  virtual Return_rt correlatedSampling(bool needGrad = true) = 0;
+  /** run correlated sampling
+   * return effective walkers (\sum_i w_i)^2/(Nw * \sum_i w^2_i)
+   */
+  virtual EffectiveWeight correlatedSampling(bool needGrad = true) = 0;
+
+  /// check the validity of the effective weight calculated by correlatedSampling
+  bool isEffectiveWeightValid(EffectiveWeight effective_weight) const;
 
 #ifdef HAVE_LMY_ENGINE
   virtual Return_rt LMYEngineCost_detail(cqmc::engine::LMYEngine<Return_t>* EngineObj)

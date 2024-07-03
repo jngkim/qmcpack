@@ -17,6 +17,7 @@
 #include "QMCDrivers/DMC/DMCDriverInput.h"
 #include "QMCDrivers/MCPopulation.h"
 #include "QMCDrivers/ContextForSteps.h"
+#include "Particle/MCCoords.hpp"
 
 namespace qmcplusplus
 {
@@ -37,7 +38,7 @@ public:
   using Base              = QMCDriverNew;
   using FullPrecRealType  = QMCTraits::FullPrecRealType;
   using PosType           = QMCTraits::PosType;
-  using ParticlePositions = PtclOnLatticeTraits::ParticlePos_t;
+  using ParticlePositions = PtclOnLatticeTraits::ParticlePos;
   /** To avoid 10's of arguments to runDMCStep
    *
    *  There should be a division between const input to runVMCStep
@@ -76,7 +77,9 @@ public:
   /// Constructor.
   DMCBatched(const ProjectData& project_data,
              QMCDriverInput&& qmcdriver_input,
+             const std::optional<EstimatorManagerInput>& global_emi,
              DMCDriverInput&& input,
+             WalkerConfigurations& wc,
              MCPopulation&& pop,
              Communicate* comm);
 
@@ -132,6 +135,7 @@ private:
   ///walker controller for load-balance
   std::unique_ptr<WalkerControl> walker_controller_;
 
+  template<CoordsType CT>
   static void advanceWalkers(const StateForThread& sft,
                              Crowd& crowd,
                              DriverTimers& timers,

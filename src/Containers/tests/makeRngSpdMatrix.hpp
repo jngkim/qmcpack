@@ -24,11 +24,11 @@ namespace qmcplusplus
  *  Probably a more elegant way to do this especially in c++17
  */
 template<typename T>
-using RngValueType = typename c14disjunction::disjunction<OnTypesEqual<T, float, float>,
-                                                          OnTypesEqual<T, double, double>,
-                                                          OnTypesEqual<T, std::complex<float>, float>,
-                                                          OnTypesEqual<T, std::complex<double>, double>,
-                                                          default_type<void>>::type;
+using RngValueType = typename std::disjunction<OnTypesEqual<T, float, float>,
+                                               OnTypesEqual<T, double, double>,
+                                               OnTypesEqual<T, std::complex<float>, float>,
+                                               OnTypesEqual<T, std::complex<double>, double>,
+                                               default_type<void>>::type;
 
 namespace testing
 {
@@ -53,8 +53,8 @@ void makeRngSpdMatrix(testing::RandomForTest<RngValueType<T>>& rng, Matrix<T>& m
   std::vector<T> singular_values(n);
   std::vector<T> work_vec(5 * n);
   int info;
-  const char trans   = 'T';
-  const char notrans = 'N';
+  const char trans   = 't';
+  const char notrans = 'n';
   const char all     = 'a';
   BLAS::gemm(trans, notrans, n, n, n, 1.0, mat_a.data(), n, mat_a_t.data(), n, 0.0, mat_c.data(), n);
   LAPACK::gesvd(all, all, n, n, mat_c.data(), n, singular_values.data(), mat_u.data(), n, mat_v.data(), n,
@@ -93,8 +93,8 @@ void makeRngSpdMatrix(testing::RandomForTest<RngValueType<T>>& rng, Matrix<T>& m
   std::vector<T> work_vec(5 * n);
   std::vector<typename T::value_type> real_work_vec(5 * n);
   int info;
-  const char trans   = 'T';
-  const char notrans = 'N';
+  const char trans   = 't';
+  const char notrans = 'n';
   const char all     = 'a';
   BLAS::gemm(trans, notrans, n, n, n, 1.0, mat_a.data(), n, mat_a_t.data(), n, 0.0, mat_c.data(), n);
   LAPACK::gesvd(all, all, n, n, mat_c.data(), n, singular_values.data(), mat_u.data(), n, mat_v.data(), n,
@@ -119,6 +119,7 @@ class MakeRngSpdMatrix
 {
 public:
   void operator()(Matrix<T>& mat_spd) { makeRngSpdMatrix(rng, mat_spd); }
+
 private:
   testing::RandomForTest<RngValueType<T>> rng;
 };
@@ -139,6 +140,7 @@ class MakeRngVector
 {
 public:
   void operator()(Vector<T>& vec) { makeRngSpdMatrix(rng, vec); }
+
 private:
   testing::RandomForTest<RngValueType<T>> rng;
 };

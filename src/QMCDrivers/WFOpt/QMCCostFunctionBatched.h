@@ -40,19 +40,18 @@ class QMCCostFunctionBatched : public QMCCostFunctionBase, public QMCTraits
 {
 public:
   ///Constructor.
-  QMCCostFunctionBatched(MCWalkerConfiguration& w,
+  QMCCostFunctionBatched(ParticleSet& w,
                          TrialWaveFunction& psi,
                          QMCHamiltonian& h,
                          SampleStack& samples,
-                         int opt_num_crowds,
-                         int crowd_size,
+                         const std::vector<int>& walkers_per_crowd,
                          Communicate* comm);
 
   ///Destructor
   ~QMCCostFunctionBatched() override;
 
   void getConfigurations(const std::string& aroot) override;
-  void checkConfigurations() override;
+  void checkConfigurations(EngineHandle& handle) override;
 #ifdef HAVE_LMY_ENGINE
   void engine_checkConfigurations(cqmc::engine::LMYEngine<Return_t>* EngineObj,
                                   DescentEngine& descentEngineObj,
@@ -75,15 +74,15 @@ protected:
   Matrix<Return_rt> DerivRecords_;
   Matrix<Return_rt> HDerivRecords_;
 
-  Return_rt correlatedSampling(bool needGrad = true) override;
+  EffectiveWeight correlatedSampling(bool needGrad = true) override;
 
   SampleStack& samples_;
 
   // Number of samples local to each MPI rank
   int rank_local_num_samples_;
 
-  int opt_batch_size_;
-  int opt_num_crowds_;
+  // Number of walkers per crowd. Size of vector is number of crowds.
+  std::vector<int> walkers_per_crowd_;
 
   std::vector<std::unique_ptr<CostFunctionCrowdData>> opt_eval_;
 
@@ -94,6 +93,7 @@ protected:
 
 #ifdef HAVE_LMY_ENGINE
   int total_samples();
+  Return_rt LMYEngineCost_detail(cqmc::engine::LMYEngine<Return_t>* EngineObj) override;
 #endif
 
   friend testing::LinearMethodTestSupport;

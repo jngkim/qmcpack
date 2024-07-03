@@ -2,32 +2,24 @@
 // This file is distributed under the University of Illinois/NCSA Open Source License.
 // See LICENSE file in top directory for details.
 //
-// Copyright (c) 2019 QMCPACK developers.
+// Copyright (c) 2022 QMCPACK developers.
 //
-// File developed by: Thomas Applencourt, tappencourt@anl.gov, Argonne National Laboratory
+// File developed by: Ye Luo, yeluo@anl.gov, Argonne National Laboratory
 //
-// File created by: Jeongnim Kim, jeongnim.kim@intel.com, Intel Corp
-////////////////////////////////////////////////////////////////////////////////////// // -*- C++ -*-
-#ifndef QMCPLUSPLUS_SYCL_DEVICE_MANAGER_H
-#define QMCPLUSPLUS_SYCL_DEVICE_MANAGER_H
-#include <vector>
-#include <level_zero/ze_api.h>
-#include <CL/sycl.hpp>
+// File created by: Ye Luo, yeluo@anl.gov, Argonne National Laboratory
+//////////////////////////////////////////////////////////////////////////////////////
+
+#ifndef QMCPLUSPLUS_SYCL_RUNTIME_H
+#define QMCPLUSPLUS_SYCL_RUNTIME_H
+
+#include <sycl/sycl.hpp>
+
 namespace qmcplusplus
 {
-  sycl::queue* get_default_queue();
+sycl::queue& getSYCLDefaultDeviceDefaultQueue();
 
-  struct syclDeviceInfo {
-    sycl::context sycl_context;
-    sycl::device sycl_device;
-    ze_context_handle_t ze_context;
-  };
+size_t getSYCLdeviceFreeMem();
 
-  std::vector<struct syclDeviceInfo> xomp_get_infos_devices();
+} // namespace qmcplusplus
 
-  inline syclDeviceInfo xomp_get_device_info(const int n) {
-    return xomp_get_infos_devices()[n];
-  }
-
-}
 #endif

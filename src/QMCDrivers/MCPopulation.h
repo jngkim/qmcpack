@@ -17,13 +17,10 @@
 #include <memory>
 
 #include "Configuration.h"
-#include "type_traits/TypeRequire.hpp"
 #include "Particle/ParticleSet.h"
 #include "ParticleBase/ParticleAttrib.h"
-#include "Particle/MCWalkerConfiguration.h"
 #include "Particle/Walker.h"
 #include "QMCWaveFunctions/TrialWaveFunction.h"
-#include "QMCWaveFunctions/WaveFunctionFactory.h"
 #include "QMCDrivers/WalkerElementsRef.h"
 #include "OhmmsPETE/OhmmsVector.h"
 #include "Utilities/FairDivide.h"
@@ -55,8 +52,6 @@ private:
 
   IndexType num_global_walkers_ = 0;
   IndexType num_local_walkers_  = 0;
-  IndexType num_particles_      = 0;
-  IndexType num_groups_         = 0;
   IndexType max_samples_        = 0;
   IndexType target_population_  = 0;
   IndexType target_samples_     = 0;
@@ -65,7 +60,6 @@ private:
   // By making this a linked list and creating the crowds at the same time we could get first touch.
   UPtrVector<MCPWalker> walkers_;
   UPtrVector<MCPWalker> dead_walkers_;
-  std::vector<std::pair<int, int>> particle_group_indexes_;
   std::vector<RealType> ptclgrp_mass_;
   ///1/Mass per species
   std::vector<RealType> ptclgrp_inv_mass_;
@@ -78,7 +72,6 @@ private:
   TrialWaveFunction* trial_wf_;
   ParticleSet* elec_particle_set_;
   QMCHamiltonian* hamiltonian_;
-  WaveFunctionFactory* wf_factory_;
   // At the moment these are "clones" but I think this design pattern smells.
   UPtrVector<ParticleSet> walker_elec_particle_sets_;
   UPtrVector<TrialWaveFunction> walker_trial_wavefunctions_;
@@ -95,23 +88,18 @@ private:
   int num_ranks_;
   int rank_;
 
-  // reference to the captured WalkerConfigurations
-  WalkerConfigurations& walker_configs_ref_;
-
 public:
   /** Temporary constructor to deal with MCWalkerConfiguration be the only source of some information
    *  in QMCDriverFactory.
    */
   MCPopulation(int num_ranks,
                int this_rank,
-               WalkerConfigurations& mcwc,
                ParticleSet* elecs,
                TrialWaveFunction* trial_wf,
-               WaveFunctionFactory* wf_factory,
                QMCHamiltonian* hamiltonian_);
 
   ~MCPopulation();
-  MCPopulation(MCPopulation&) = delete;
+  MCPopulation(MCPopulation&)            = delete;
   MCPopulation& operator=(MCPopulation&) = delete;
   MCPopulation(MCPopulation&&)           = default;
 
@@ -131,7 +119,7 @@ public:
    *  \param[in] num_walkers number of living walkers in initial population
    *  \param[in] reserve multiple above that to reserve >=1.0
    */
-  void createWalkers(IndexType num_walkers, RealType reserve = 1.0);
+  void createWalkers(IndexType num_walkers, const WalkerConfigurations& walker_configs, RealType reserve = 1.0);
 
   /** distributes walkers and their "cloned" elements to the elements of a vector
    *  of unique_ptr to "walker_consumers". 
@@ -179,21 +167,19 @@ public:
   int get_rank() const { return rank_; }
   IndexType get_num_global_walkers() const { return num_global_walkers_; }
   IndexType get_num_local_walkers() const { return num_local_walkers_; }
-  IndexType get_num_particles() const { return num_particles_; }
   IndexType get_max_samples() const { return max_samples_; }
   IndexType get_target_population() const { return target_population_; }
   IndexType get_target_samples() const { return target_samples_; }
   //const Properties& get_properties() const { return properties_; }
 
   // accessor to the gold copy
-  const ParticleSet* get_golden_electrons() const { return elec_particle_set_; }
-  ParticleSet* get_golden_electrons() { return elec_particle_set_; }
+  const ParticleSet& get_golden_electrons() const { return *elec_particle_set_; }
+  ParticleSet& get_golden_electrons() { return *elec_particle_set_; }
   const TrialWaveFunction& get_golden_twf() const { return *trial_wf_; }
   TrialWaveFunction& get_golden_twf() { return *trial_wf_; }
   // TODO: the fact this is needed is sad remove need for its existence.
   QMCHamiltonian& get_golden_hamiltonian() { return *hamiltonian_; }
-  WaveFunctionFactory& get_wf_factory() { return *wf_factory_; }
-  
+
   void set_num_global_walkers(IndexType num_global_walkers) { num_global_walkers_ = num_global_walkers; }
   void set_num_local_walkers(IndexType num_local_walkers) { num_local_walkers_ = num_local_walkers; }
 
@@ -234,7 +220,6 @@ public:
    */
   std::vector<WalkerElementsRef> get_walker_elements();
 
-  const std::vector<std::pair<int, int>>& get_particle_group_indexes() const { return particle_group_indexes_; }
   const std::vector<RealType>& get_ptclgrp_mass() const { return ptclgrp_mass_; }
   const std::vector<RealType>& get_ptclgrp_inv_mass() const { return ptclgrp_inv_mass_; }
   const std::vector<RealType>& get_ptcl_inv_mass() const { return ptcl_inv_mass_; }
@@ -248,10 +233,8 @@ public:
   /// check if all the internal vector contain consistent sizes;
   void checkIntegrity() const;
 
-  WalkerConfigurations& getWalkerConfigsRef() { return walker_configs_ref_; }
-
-  // save walker configurations to walker_configs_ref_
-  void saveWalkerConfigurations();
+  /// save walker configurations to walker_configs_ref_
+  void saveWalkerConfigurations(WalkerConfigurations& walker_configs);
 };
 
 } // namespace qmcplusplus

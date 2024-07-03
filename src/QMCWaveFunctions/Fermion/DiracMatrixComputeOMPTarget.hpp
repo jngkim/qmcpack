@@ -20,7 +20,7 @@
 #include "DiracMatrix.h"
 #include "type_traits/complex_help.hpp"
 #include "type_traits/template_types.hpp"
-#include "Message/OpenMP.h"
+#include "Concurrency/OpenMP.h"
 #include "CPU/SIMD/simd.hpp"
 #include "ResourceCollection.h"
 
@@ -62,12 +62,11 @@ public:
 private:
   aligned_vector<VALUE_FP> m_work_;
   int lwork_;
-  //Unlike DiracMatrix.h these are contiguous packed representations of the Matrices
-  // Contiguous Matrices for each walker, n^2 * nw  elements
+
+  /// Matrices held in memory matrices n^2 * nw  elements
   OffloadPinnedVector<VALUE_FP> psiM_fp_;
-  OffloadPinnedVector<VALUE_FP> logdets_fp_;
   OffloadPinnedVector<VALUE_FP> LU_diags_fp_;
-  OffloadPinnedVector<lapack_int> pivots_;
+  OffloadPinnedVector<int> pivots_;
   OffloadPinnedVector<int> infos_;
 
   /** reset internal work space.
@@ -85,7 +84,7 @@ private:
       VALUE_FP tmp;
       FullPrecReal lw;
       auto psi_M_ptr = psi_Ms.data() + iw * n * n;
-      auto status=LAPACK::getri(lda, psi_M_ptr, lda, pivots_.data() + iw * n, &tmp, lwork_);
+      Xgetri(lda, psi_M_ptr, lda, pivots_.data() + iw * n, &tmp, lwork_);
       convert(tmp, lw);
       lwork_ = static_cast<int>(lw);
       m_work_.resize(lwork_);
@@ -104,8 +103,8 @@ private:
     lwork_ = -1;
     VALUE_FP tmp;
     FullPrecReal lw;
-    auto status=LAPACK::getri(lda, psi_M.data(), lda, pivots_.data(), &tmp, lwork_);
-    convert(tmp, lw);
+    Xgetri(lda, psi_M.data(), lda, pivots_.data(), &tmp, lwork_);
+    lw     = std::real(tmp);
     lwork_ = static_cast<int>(lw);
     m_work_.resize(lwork_);
   }
@@ -123,12 +122,12 @@ private:
     BlasThreadingEnv knob(getNextLevelNumThreads());
     if (lwork_ < lda)
       reset(a_mat, n, lda);
-    auto status=LAPACK::getrf(n, n, a_mat.data(), lda, pivots_.data());
+    Xgetrf(n, n, a_mat.data(), lda, pivots_.data());
     for (int i = 0; i < n; i++)
       LU_diags_fp_[i] = a_mat.data()[i * lda + i];
     log_value = {0.0, 0.0};
     computeLogDet(LU_diags_fp_.data(), n, pivots_.data(), log_value);
-    status=LAPACK::getri(n, a_mat.data(), lda, pivots_.data(), m_work_.data(), lwork_);
+    Xgetri(n, a_mat.data(), lda, pivots_.data(), m_work_.data(), lwork_);
   }
 
   template<typename TMAT>
@@ -146,13 +145,13 @@ private:
     for (int iw = 0; iw < nw; ++iw)
     {
       VALUE_FP* LU_M = psi_Ms.data() + iw * n * n;
-      auto status=LAPACK::getrf(n, n, LU_M, lda, pivots_.data() + iw * n);
+      Xgetrf(n, n, LU_M, lda, pivots_.data() + iw * n);
       for (int i = 0; i < n; i++)
         *(LU_diags_fp_.data() + iw * n + i) = LU_M[i * lda + i];
       LogValue log_value{0.0, 0.0};
       computeLogDet(LU_diags_fp_.data() + iw * n, n, pivots_.data() + iw * n, log_value);
       log_values[iw] = log_value;
-      status=LAPACK::getri(n, LU_M, lda, pivots_.data() + iw * n, m_work_.data(), lwork_);
+      Xgetri(n, LU_M, lda, pivots_.data() + iw * n, m_work_.data(), lwork_);
     }
   }
 

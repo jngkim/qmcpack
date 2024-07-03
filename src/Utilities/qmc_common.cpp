@@ -21,6 +21,11 @@
 #include "Message/Communicate.h"
 #include "Platforms/Host/OutputManager.h"
 
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+
 namespace qmcplusplus
 {
 QMCState::QMCState()
@@ -30,7 +35,6 @@ QMCState::QMCState()
   dryrun                 = false;
   io_node                = true;
   mpi_groups             = 1;
-  use_ewald              = false;
   qmc_counter            = 0;
   memory_allocated       = 0;
 }
@@ -76,10 +80,6 @@ void QMCState::initialize(int argc, char** argv)
     { //do not print Jastrow or PP
       io_node = false;
     }
-    //else if(c.find("--use_ewald")<c.size())
-    //{
-    //  use_ewald=true;
-    //}
     ++i;
   }
   if (stopit && io_node)
@@ -121,6 +121,41 @@ void QMCState::print_git_info_if_present(std::ostream& os)
 #endif
 }
 
+void QMCState::print_time_per_rank(const std::string& name, double t)
+{
+  static std::ofstream *fout = nullptr;
+  static int seq_id = 0;
+  if(fout == nullptr)
+  {
+    int rank = OHMMS::Controller->rank();
+
+    // Get the name of the processor
+    char processorName[MPI_MAX_PROCESSOR_NAME];
+    int nameLen;
+    MPI_Get_processor_name(processorName, &nameLen);
+
+    char fname[128];
+    //const char* value = std::getenv("QMCPACK_OUT");
+    //std::string out_dir{std::getenv("PWD")};
+    //if (value != nullptr) {
+    //  out_dir = value;
+    //}
+    //sprintf(fname,"%s/%08d.%s.txt", out_dir.c_str(), rank, processorName);
+    sprintf(fname,"%08d.%s.txt", rank, processorName);
+    fout = new std::ofstream(fname);
+  }
+
+  auto now = std::chrono::system_clock::now();
+  auto now_c = std::chrono::system_clock::to_time_t(now);
+  std::tm now_tm = *std::localtime(&now_c);
+  auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()) % 1000000;
+  std::stringstream ss;
+  ss << std::put_time(&now_tm, "%H:%M:%S");
+  ss << '.' << std::setfill('0') << std::setw(6) << microseconds.count();
+
+  *fout << ss.str() << " " << seq_id << "_" << name << " " << t << std::endl;
+  seq_id++;
+}
 
 QMCState qmc_common;
 

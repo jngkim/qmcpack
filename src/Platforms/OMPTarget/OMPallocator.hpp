@@ -26,6 +26,10 @@
 #include <omp.h>
 #endif
 
+#if defined(__INTEL_LLVM_COMPILER) || defined(__INTEL_CLANG_COMPILER)
+#include <omp.h>
+#endif
+
 namespace qmcplusplus
 {
 extern std::atomic<size_t> OMPallocator_device_mem_allocated;
@@ -76,7 +80,7 @@ struct OMPallocator : public HostAllocator
   template<class U, class V>
   struct rebind
   {
-    typedef OMPallocator<U, V> other;
+    using other = OMPallocator<U, V>;
   };
 
   value_type* allocate(std::size_t n)
@@ -89,6 +93,7 @@ struct OMPallocator : public HostAllocator
     if (status != 0)
       throw std::runtime_error("omp_target_associate_ptr failed in OMPallocator!");
 #else
+    //ompx_target_register_host_pointer(pt, n * sizeof(T), omp_get_default_device());
     PRAGMA_OFFLOAD("omp target enter data map(alloc:pt[0:n])")
     device_ptr_ = getOffloadDevicePtr(pt);
 #endif
@@ -101,12 +106,13 @@ struct OMPallocator : public HostAllocator
     OMPallocator_device_mem_allocated -= n * sizeof(T);
 #if defined(QMC_OFFLOAD_MEM_ASSOCIATED)
     T* device_ptr_from_omp = getOffloadDevicePtr(pt);
-    const int status = omp_target_disassociate_ptr(pt, omp_get_default_device());
+    const int status       = omp_target_disassociate_ptr(pt, omp_get_default_device());
     if (status != 0)
       throw std::runtime_error("omp_target_disassociate_ptr failed in OMPallocator!");
     cudaErrorCheck(cudaFree(device_ptr_from_omp), "cudaFree failed in OMPallocator!");
 #else
     PRAGMA_OFFLOAD("omp target exit data map(delete:pt[0:n])")
+    //ompx_target_unregister_host_pointer(pt, omp_get_default_device());
 #endif
     HostAllocator::deallocate(pt, n);
   }
@@ -168,5 +174,53 @@ struct qmc_allocator_traits<OMPallocator<T, HostAllocator>>
   }
 };
 
+#if defined(__INTEL_LLVM_COMPILER) || defined(__INTEL_CLANG_COMPILER)
+/** allocator for OMP host pinned memory
+ * @tparm T data type
+ * @tparm ALIGN alignment in bytes
+ */
+template<typename T>
+struct OMPHostAllocator
+{
+  typedef T value_type;
+  typedef size_t size_type;
+  typedef T* pointer;
+  typedef const T* const_pointer;
+
+  OMPHostAllocator() = default;
+  template<class U>
+  OMPHostAllocator(const OMPHostAllocator<U>&)
+  {}
+
+  template<class U>
+  struct rebind
+  {
+    typedef OMPHostAllocator<U> other;
+  };
+
+  T* allocate(std::size_t n) { 
+    T* pt = static_cast<T*>(omp_target_alloc_host( n * sizeof(T), 0)); 
+    PRAGMA_OFFLOAD("omp target enter data map(alloc:pt[0:n])")
+    return pt;
+  }
+  void deallocate(T* pt, std::size_t n) 
+  { 
+    PRAGMA_OFFLOAD("omp target exit data map(delete:pt[0:n])")
+    omp_target_free(pt, 0);
+  }
+};
+
+template<class T1, class T2>
+bool operator==(const OMPHostAllocator<T1>&, const OMPHostAllocator<T2>&)
+{
+  return true;
+}
+
+template<class T1, class T2>
+bool operator!=(const OMPHostAllocator<T1>&, const OMPHostAllocator<T2>&)
+{
+  return false;
+}
+#endif
 } // namespace qmcplusplus
 #endif

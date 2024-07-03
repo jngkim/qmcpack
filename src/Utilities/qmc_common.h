@@ -33,8 +33,6 @@ struct QMCState
   bool dryrun;
   ///true, print out file
   bool io_node;
-  ///true, use Ewald instead of optimal breakup for the Coulomb
-  bool use_ewald;
   ///init for <qmc/> section
   int qmc_counter;
   ///number of mpi groups
@@ -56,6 +54,9 @@ struct QMCState
 
   /// Print git info (commit hash, etc) if project was build from git repository
   void print_git_info_if_present(std::ostream& os);
+
+  /// print per rank
+  void print_time_per_rank(const std::string& name, double t);
 };
 
 ///a unique QMCState during a run

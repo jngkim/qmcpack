@@ -2,12 +2,13 @@
 // This file is distributed under the University of Illinois/NCSA Open Source License.
 // See LICENSE file in top directory for details.
 //
-// Copyright (c) 2016 Jeongnim Kim and QMCPACK developers.
+// Copyright (c) 2022 Jeongnim Kim and QMCPACK developers.
 //
 // File developed by: Jeremy McMinnis, jmcminis@gmail.com, University of Illinois at Urbana-Champaign
 //                    Jeongnim Kim, jeongnim.kim@gmail.com, University of Illinois at Urbana-Champaign
 //                    Mark A. Berrill, berrillma@ornl.gov, Oak Ridge National Laboratory
 //                    Mark Dewing, markdewing@gmail.com, University of Illinois at Urbana-Champaign
+//                    Peter Doak, doakpw@ornl.gov, Oak Ridge National Laboratory
 //
 // File created by: Jeongnim Kim, jeongnim.kim@gmail.com, University of Illinois at Urbana-Champaign
 //////////////////////////////////////////////////////////////////////////////////////
@@ -18,6 +19,7 @@
 #include "Host/sysutil.h"
 #include "Utilities/qmc_common.h"
 #include "OhmmsData/ParameterSet.h"
+#include "Message/UniformCommunicateError.h"
 
 namespace qmcplusplus
 {
@@ -25,17 +27,12 @@ namespace qmcplusplus
 // ProjectData
 //----------------------------------------------------------------------------
 // constructors and destructors
-ProjectData::ProjectData(const char* aname)
-    : m_title("asample"), m_host("none"), m_date("none"), m_series(0), m_cur(NULL), max_cpu_secs_(360000)
+ProjectData::ProjectData(const std::string& atitle, ProjectData::DriverVersion driver_version)
+    : m_title(atitle), m_host("none"), m_date("none"), m_series(0), m_cur(NULL), max_cpu_secs_(360000), driver_version_(driver_version)
 {
-  myComm = OHMMS::Controller;
-  if (aname == 0)
-  {
+  myComm  = OHMMS::Controller;
+  if (m_title.empty())
     m_title = getDateAndTime("%Y%m%dT%H%M");
-    setName(m_title);
-  }
-  else
-    setName(aname);
 }
 
 void ProjectData::setCommunicator(Communicate* c) { myComm = c; }
@@ -94,12 +91,13 @@ void ProjectData::reset()
   char fileroot[256], nextroot[256];
 
   bool no_gtag = (qmc_common.mpi_groups == 1);
+  int length{0};
   if (no_gtag) //qnproc_g == nproc)
-    sprintf(fileroot, "%s.s%03d", m_title.c_str(), m_series);
+    length = sprintf(fileroot, "%s.s%03d", m_title.c_str(), m_series);
   else
-    sprintf(fileroot, "%s.g%03d.s%03d", m_title.c_str(), groupid, m_series);
+    length = sprintf(fileroot, "%s.g%03d.s%03d", m_title.c_str(), groupid, m_series);
 
-  m_projectmain = fileroot;
+  m_projectmain = std::string(fileroot, length);
   //set the communicator name
   myComm->setName(fileroot);
   if (no_gtag)
@@ -177,14 +175,19 @@ bool ProjectData::PreviousRoot(std::string& oldroot) const
 bool ProjectData::put(xmlNodePtr cur)
 {
   m_cur   = cur;
-  m_title = XMLAttrString(cur, "id");
-  const XMLAttrString series_str(cur, "series");
+  m_title = getXMLAttributeValue(cur, "id");
+  const std::string series_str(getXMLAttributeValue(cur, "series"));
   if (!series_str.empty())
     m_series = std::stoi(series_str);
 
+  std::string driver_version_str;
   ParameterSet m_param;
   m_param.add(max_cpu_secs_, "max_seconds");
+  m_param.add(driver_version_str, "driver_version");
   m_param.put(cur);
+
+  if (!driver_version_str.empty())
+    driver_version_ = lookupDriverVersion(driver_version_str);
 
   ///first, overwrite the existing xml nodes
   cur = cur->xmlChildrenNode;
@@ -222,6 +225,19 @@ bool ProjectData::put(xmlNodePtr cur)
   }
   reset();
   return true;
+}
+
+ProjectData::DriverVersion ProjectData::lookupDriverVersion(const std::string& enum_value)
+{
+  std::string enum_value_str(lowerCase(enum_value));
+  try
+  {
+    return lookup_input_enum_value.at(enum_value_str);
+  }
+  catch (std::out_of_range& oor_exc)
+  {
+    throw UniformCommunicateError("bad_enum_tag_value: " + enum_value_str);
+  }
 }
 
 } // namespace qmcplusplus

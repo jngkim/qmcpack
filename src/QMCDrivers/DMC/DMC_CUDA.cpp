@@ -23,7 +23,6 @@
 #include "QMCDrivers/DriftOperators.h"
 #include "Utilities/RunTimeManager.h"
 #include "Message/CommOperators.h"
-#include "type_traits/scalar_traits.h"
 #ifdef USE_NVTX_API
 #include <nvToolsExt.h>
 #endif
@@ -59,16 +58,16 @@ DMCcuda::DMCcuda(MCWalkerConfiguration& w,
 
 bool DMCcuda::checkBounds(const PosType& newpos)
 {
-  PosType red = W.Lattice.toUnit(newpos);
-  return W.Lattice.isValid(red);
+  PosType red = W.getLattice().toUnit(newpos);
+  return W.getLattice().isValid(red);
 }
 
 void DMCcuda::checkBounds(std::vector<PosType>& newpos, std::vector<bool>& valid)
 {
   for (int iw = 0; iw < newpos.size(); iw++)
   {
-    PosType red = W.Lattice.toUnit(newpos[iw]);
-    valid[iw]   = W.Lattice.isValid(red);
+    PosType red = W.getLattice().toUnit(newpos[iw]);
+    valid[iw]   = W.getLattice().isValid(red);
   }
 }
 
@@ -84,8 +83,6 @@ bool DMCcuda::run()
   resetRun();
   Mover->MaxAge        = 1;
   IndexType block      = 0;
-  IndexType nAcceptTot = 0;
-  IndexType nRejectTot = 0;
   bool update_now      = false;
   int nat              = W.getTotalNum();
   int nw               = W.getActiveWalkers();
@@ -282,7 +279,7 @@ bool DMCcuda::run()
           v2bar += dot(wG_scaled, wG_scaled);
 #ifdef QMC_COMPLEX
           PosType wG_real;
-          convert(W.G[iat], wG_real);
+          convertToReal(W.G[iat], wG_real);
           v2 += dot(wG_real, wG_real);
 #else
           // should be removed when things work fine
@@ -317,8 +314,6 @@ bool DMCcuda::run()
       Psi.recompute(W, true);
     double accept_ratio = (double)nAccept / (double)(nAccept + nReject);
     Estimators->stopBlock(accept_ratio);
-    nAcceptTot += nAccept;
-    nRejectTot += nReject;
     ++block;
     recordBlock(block);
     dmc_loop.stop();

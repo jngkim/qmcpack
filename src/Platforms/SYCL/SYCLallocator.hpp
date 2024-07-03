@@ -2,7 +2,7 @@
 // This file is distributed under the University of Illinois/NCSA Open Source License.
 // See LICENSE file in top directory for details.
 //
-// Copyright (c) 2019 QMCPACK developers.
+// Copyright (c) 2022 QMCPACK developers.
 //
 // File developed by: Ye Luo, yeluo@anl.gov, Argonne National Laboratory
 //
@@ -25,66 +25,64 @@
 #include <stdexcept>
 #include <atomic>
 #include <limits>
-#include <CL/sycl.hpp>
+#include <sycl/sycl.hpp>
+#include "config.h"
 #include "allocator_traits.hpp"
+#include "SYCLruntime.hpp"
 
 namespace qmcplusplus
 {
-extern sycl::queue* get_default_queue();
-
 extern std::atomic<size_t> SYCLallocator_device_mem_allocated;
 
 inline size_t getSYCLdeviceMemAllocated() { return SYCLallocator_device_mem_allocated; }
 
-/** allocator for SYCL unified memory
+/** allocator for SYCL shared memory
  * @tparm T data type
+ * @tparm ALIGN alignment in bytes
  */
-template<typename T>
-struct SYCLManagedAllocator
+template<typename T, size_t ALIGN = QMC_SIMD_ALIGNMENT>
+struct SYCLSharedAllocator
 {
   typedef T value_type;
   typedef size_t size_type;
   typedef T* pointer;
   typedef const T* const_pointer;
-  sycl::queue* m_queue=nullptr;
 
-  SYCLManagedAllocator() = default;
+  static constexpr size_t alignment = ALIGN;
+
+  SYCLSharedAllocator() = default;
   template<class U>
-  SYCLManagedAllocator(const SYCLManagedAllocator<U>&)
+  SYCLSharedAllocator(const SYCLSharedAllocator<U>&)
   {}
 
   template<class U>
   struct rebind
   {
-    typedef SYCLManagedAllocator<U> other;
+    typedef SYCLSharedAllocator<U> other;
   };
 
   T* allocate(std::size_t n)
   {
-    if(m_queue == nullptr) m_queue=get_default_queue();
-    T* pt=sycl::aligned_alloc_shared<T>(64,n,m_queue->get_device(), m_queue->get_context());
-    SYCLallocator_device_mem_allocated += n * sizeof(T);
+    T* pt = sycl::aligned_alloc_shared<T>(ALIGN, n, getSYCLDefaultDeviceDefaultQueue());
     return pt;
   }
-  void deallocate(T* p, std::size_t) { 
-    sycl::free(p,m_queue->get_context());
-  }
+  void deallocate(T* p, std::size_t) { sycl::free(p, getSYCLDefaultDeviceDefaultQueue()); }
 };
 
 template<class T1, class T2>
-bool operator==(const SYCLManagedAllocator<T1>&, const SYCLManagedAllocator<T2>&)
+bool operator==(const SYCLSharedAllocator<T1>&, const SYCLSharedAllocator<T2>&)
 {
   return true;
 }
 template<class T1, class T2>
-bool operator!=(const SYCLManagedAllocator<T1>&, const SYCLManagedAllocator<T2>&)
+bool operator!=(const SYCLSharedAllocator<T1>&, const SYCLSharedAllocator<T2>&)
 {
   return false;
 }
 
-
 /** allocator for SYCL device memory
  * @tparm T data type
+ * @tparm ALIGN alignment in bytes
  *
  * using this with something other than Ohmms containers?
  *  -- use caution, write unit tests! --
@@ -95,7 +93,7 @@ bool operator!=(const SYCLManagedAllocator<T1>&, const SYCLManagedAllocator<T2>&
  * of optional Allocator requirements may cause runtime or compilation failures.
  * They assume there is only one memory space and that the host has access to it.
  */
-template<typename T>
+template<typename T, size_t ALIGN = 64>
 class SYCLAllocator
 {
 public:
@@ -103,7 +101,8 @@ public:
   typedef size_t size_type;
   typedef T* pointer;
   typedef const T* const_pointer;
-  sycl::queue* m_queue=nullptr;
+
+  static constexpr size_t alignment = ALIGN;
 
   SYCLAllocator() = default;
   template<class U>
@@ -118,14 +117,14 @@ public:
 
   T* allocate(std::size_t n)
   {
-    if(m_queue == nullptr) m_queue=get_default_queue();
-    T* pt=sycl::aligned_alloc_device<T>(64,n,m_queue->get_device(), m_queue->get_context());
+    T* pt = sycl::aligned_alloc_device<T>(ALIGN, n, getSYCLDefaultDeviceDefaultQueue());
     SYCLallocator_device_mem_allocated += n * sizeof(T);
     return pt;
   }
+
   void deallocate(T* p, std::size_t n)
   {
-    sycl::free(p,m_queue->get_context());
+    sycl::free(p, getSYCLDefaultDeviceDefaultQueue());
     SYCLallocator_device_mem_allocated -= n * sizeof(T);
   }
 
@@ -159,17 +158,17 @@ public:
 
   void copyToDevice(T* device_ptr, T* host_ptr, size_t n)
   {
-    m_queue->memcpy(device_ptr,host_ptr,n*sizeof(T)).wait();
+    getSYCLDefaultDeviceDefaultQueue().memcpy(device_ptr, host_ptr, n * sizeof(T)).wait();
   }
 
   void copyFromDevice(T* host_ptr, T* device_ptr, size_t n)
   {
-    m_queue->memcpy(host_ptr,device_ptr,n*sizeof(T)).wait();
+    getSYCLDefaultDeviceDefaultQueue().memcpy(host_ptr, device_ptr, n * sizeof(T)).wait();
   }
 
   void copyDeviceToDevice(T* to_ptr, size_t n, T* from_ptr)
   {
-    m_queue->memcpy(to_ptr,from_ptr,n*sizeof(T)).wait();
+    getSYCLDefaultDeviceDefaultQueue().memcpy(to_ptr, from_ptr, n * sizeof(T)).wait();
   }
 };
 
@@ -189,35 +188,37 @@ struct qmc_allocator_traits<qmcplusplus::SYCLAllocator<T>>
 {
   static const bool is_host_accessible = false;
   static const bool is_dual_space      = false;
-  static void fill_n(T* ptr, size_t n, const T& value) { 
+  static void fill_n(T* ptr, size_t n, const T& value)
+  {
     //THINK
-    //qmcplusplus::SYCLfill_n(ptr, n, value); 
+    //qmcplusplus::SYCLfill_n(ptr, n, value);
   }
   static void updateTo(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
   {
     T* device_ptr = alloc.getDevicePtr(host_ptr);
-    copyToDevice(device_ptr, host_ptr, n);
+    alloc.copyToDevice(device_ptr, host_ptr, n);
   }
 
   static void updateFrom(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
   {
     T* device_ptr = alloc.getDevicePtr(host_ptr);
-    copyFromDevice(host_ptr, device_ptr, n);
+    alloc.copyFromDevice(host_ptr, device_ptr, n);
   }
-
 };
 
 /** allocator for SYCL host pinned memory
  * @tparm T data type
+ * @tparm ALIGN alignment in bytes
  */
-template<typename T>
+template<typename T, size_t ALIGN = QMC_SIMD_ALIGNMENT>
 struct SYCLHostAllocator
 {
   typedef T value_type;
   typedef size_t size_type;
   typedef T* pointer;
   typedef const T* const_pointer;
-  sycl::queue* m_queue=nullptr;
+
+  static constexpr size_t alignment = ALIGN;
 
   SYCLHostAllocator() = default;
   template<class U>
@@ -230,14 +231,8 @@ struct SYCLHostAllocator
     typedef SYCLHostAllocator<U> other;
   };
 
-  T* allocate(std::size_t n)
-  {
-    if(m_queue == nullptr) m_queue=get_default_queue();
-    return sycl::malloc_host<T>(n,*m_queue);
-  }
-  void deallocate(T* p, std::size_t) { 
-    sycl::free(p,m_queue->get_context());
-  }
+  T* allocate(std::size_t n) { return sycl::aligned_alloc_host<T>(ALIGN, n, getSYCLDefaultDeviceDefaultQueue()); }
+  void deallocate(T* p, std::size_t) { sycl::free(p, getSYCLDefaultDeviceDefaultQueue()); }
 };
 
 template<class T1, class T2>
@@ -245,72 +240,13 @@ bool operator==(const SYCLHostAllocator<T1>&, const SYCLHostAllocator<T2>&)
 {
   return true;
 }
+
 template<class T1, class T2>
 bool operator!=(const SYCLHostAllocator<T1>&, const SYCLHostAllocator<T2>&)
 {
   return false;
 }
 
-template<typename T>
-struct qmc_allocator_traits<qmcplusplus::SYCLHostAllocator<T>>
-{
-  static const bool is_host_accessible = true;
-  static const bool is_dual_space      = true;
-
-  static void fill_n(T* ptr, size_t n, const T& value) { }
-
-  static void updateTo(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
-  { }
-
-  static void updateFrom(SYCLAllocator<T>& alloc, T* host_ptr, size_t n)
-  { }
-
-};
-
-
-#if 0
-/** allocator locks memory pages allocated by ULPHA
- * @tparm T data type
- * @tparm ULPHA host memory allocator using unlocked page
- *
- * ULPHA cannot be SYCLHostAllocator
- */
-template<typename T, class ULPHA = std::allocator<T>>
-struct SYCLLockedPageAllocator : public ULPHA
-{
-  using value_type    = typename ULPHA::value_type;
-  using size_type     = typename ULPHA::size_type;
-  using pointer       = typename ULPHA::pointer;
-  using const_pointer = typename ULPHA::const_pointer;
-
-  SYCLLockedPageAllocator() = default;
-  template<class U, class V>
-  SYCLLockedPageAllocator(const SYCLLockedPageAllocator<U, V>&)
-  {}
-
-  template<class U, class V>
-  struct rebind
-  {
-    typedef SYCLLockedPageAllocator<U, V> other;
-  };
-
-  value_type* allocate(std::size_t n)
-  {
-    static_assert(std::is_same<T, value_type>::value, "SYCLLockedPageAllocator and ULPHA data types must agree!");
-    value_type* pt = ULPHA::allocate(n);
-    cudaErrorCheck(cudaHostRegister(pt, n * sizeof(T), cudaHostRegisterDefault),
-                   "cudaHostRegister failed in SYCLLockedPageAllocator!");
-    return pt;
-  }
-
-  void deallocate(value_type* pt, std::size_t n)
-  {
-    cudaErrorCheck(cudaHostUnregister(pt), "cudaHostUnregister failed in SYCLLockedPageAllocator!");
-    ULPHA::deallocate(pt, n);
-  }
-};
-
-#endif
 } // namespace qmcplusplus
 
 #endif

@@ -30,6 +30,10 @@
 #include "QMCApp/QMCMain.h"
 #include "Utilities/qmc_common.h"
 
+#ifdef USE_VTUNE_A21
+#include <ittnotify.h>
+#endif
+
 void output_hardware_info(Communicate* comm, Libxml2Document& doc, xmlNodePtr root);
 
 /** @file qmcapp.cpp
@@ -43,6 +47,10 @@ void output_hardware_info(Communicate* comm, Libxml2Document& doc, xmlNodePtr ro
  */
 int main(int argc, char** argv)
 {
+#ifdef USE_VTUNE_A21
+     __itt_pause();
+#endif
+
   using namespace qmcplusplus;
 #ifdef HAVE_MPI
   mpi3::environment env(argc, argv);
@@ -273,7 +281,7 @@ void output_hardware_info(Communicate* comm, Libxml2Document& doc, xmlNodePtr ro
   doc.addChild(hardware, "mpi", using_mpi);
 
   bool using_openmp = false;
-#ifdef ENABLE_OPENMP
+#ifdef _OPENMP
   using_openmp = true;
   doc.addChild(hardware, "openmp_threads", omp_get_max_threads());
 #endif

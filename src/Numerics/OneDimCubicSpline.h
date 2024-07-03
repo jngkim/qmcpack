@@ -153,11 +153,11 @@ template<class Td, class Tg = Td, class CTd = Vector<Td>, class CTg = Vector<Tg>
 class OneDimCubicSpline : public OneDimGridFunctor<Td, Tg, CTd, CTg>
 {
 public:
-  using base_type = OneDimGridFunctor<Td, Tg, CTd, CTg>;
-  typedef typename base_type::value_type value_type;
-  typedef typename base_type::point_type point_type;
-  typedef typename base_type::data_type data_type;
-  typedef typename base_type::grid_type grid_type;
+  using base_type  = OneDimGridFunctor<Td, Tg, CTd, CTg>;
+  using value_type = typename base_type::value_type;
+  using point_type = typename base_type::point_type;
+  using data_type  = typename base_type::data_type;
+  using grid_type  = typename base_type::grid_type;
 
   using base_type::d2Y;
   using base_type::dY;
@@ -172,6 +172,7 @@ public:
 
   point_type r_min;
   point_type r_max;
+  point_type delta_inv;
   value_type first_deriv;
   value_type last_deriv;
   value_type ConstValue;
@@ -202,6 +203,22 @@ public:
     r_max       = a.r_max;
     first_deriv = a.first_deriv;
     last_deriv  = a.last_deriv;
+  }
+
+  inline value_type splint_over_r(point_type r)  const
+  {
+    if (r >= r_max)
+      return ConstValue/r;
+    const int k = static_cast<int>((r - r_min) * delta_inv);
+    return (m_Y[k] + (m_Y[k + 1] - m_Y[k]) * (r * delta_inv - k))/r;
+  }
+
+  inline value_type splint_fast(point_type r)  const
+  {
+    if (r >= r_max)
+      return ConstValue;
+    const int k = static_cast<int>((r - r_min) * delta_inv);
+    return (m_Y[k] + (m_Y[k + 1] - m_Y[k]) * (r * delta_inv - k));
   }
 
   inline value_type splint(point_type r) const override
@@ -297,6 +314,7 @@ public:
     last_deriv  = ypn;
     r_min       = m_grid->r(imin);
     r_max       = m_grid->r(imax);
+    delta_inv   = 1.0/m_grid->dh();
     int npts(this->size());
     m_Y2.resize(npts);
     m_Y2 = 0.0;

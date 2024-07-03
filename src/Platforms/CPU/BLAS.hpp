@@ -17,15 +17,8 @@
 #ifndef QMCPLUSPLUS_NUMERIC_BLAS_H
 #define QMCPLUSPLUS_NUMERIC_BLAS_H
 
-#if defined(HAVE_MKL)
-#include "CBLAS.hpp"
-#else
 //generic header for blas routines
 #include "Blasf.h"
-
-#ifndef lapack_int
-#define lapack_int int
-#endif
 
 /** Interfaces to blas library
  *
@@ -120,7 +113,8 @@ namespace BLAS
   inline static void scal(int n, double alpha, std::complex<double>* x, int incx = 1) { zdscal(n, alpha, x, incx); }
 
   inline static void scal(int n, float alpha, std::complex<float>* x, int incx = 1) { csscal(n, alpha, x, incx); }
-#if 0
+
+  // amat is [n][m] in C
   inline static void gemv(int n, int m, const double* restrict amat, const double* restrict x, double* restrict y)
   {
     dgemv(NOTRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
@@ -177,7 +171,6 @@ namespace BLAS
   {
     cgemv(TRANS, m, n, done, amat, m, x, INCX, dzero, y, INCY);
   }
-#endif
 
   inline static void gemv(char trans_in,
                           int n,
@@ -237,23 +230,6 @@ namespace BLAS
                           int incy)
   {
     cgemv(trans_in, n, m, alpha, amat, lda, x, incx, beta, y, incy);
-  }
-
-  template<typename T>
-  inline static void gemv(int n, int m, const T* restrict amat, const T* restrict x, T* restrict y)
-  {
-    constexpr T one_  = 1.0e0;
-    constexpr T zero_ = 0.0e0;
-    gemv(NOTRANS, m, n, one_, amat, m, x, INCX, zero_, y, INCY);
-  }
-
-
-  template<typename T>
-  inline static void gemv_trans(int n, int m, const T* restrict amat, const T* restrict x, T* restrict y)
-  {
-    constexpr T one_   = 1.0e0;
-    constexpr T zero_  = 0.0e0;
-    gemv(TRANS, m, n, one_, amat, m, x, INCX, zero_, y, INCY);
   }
 
   inline static void gemm(char Atrans,
@@ -809,80 +785,68 @@ struct LAPACK
            IWORK, LIWORK, INFO);
   }
 
-  static lapack_int getrf(const int& n, const int& m, double* a, const int& n0, int* piv)
+  static void getrf(const int& n, const int& m, double* a, const int& n0, int* piv, int& st)
   {
-    lapack_int status;
-    dgetrf(n, m, a, n0, piv, status);
-    return status;
+    dgetrf(n, m, a, n0, piv, st);
   }
 
-  static lapack_int getrf(const int& n, const int& m, float* a, const int& n0, int* piv)
+  static void getrf(const int& n, const int& m, float* a, const int& n0, int* piv, int& st)
   {
-    lapack_int status;
-    sgetrf(n, m, a, n0, piv, status);
-    return status;
+    sgetrf(n, m, a, n0, piv, st);
   }
 
-  static lapack_int getrf(const int& n, const int& m, std::complex<double>* a, const int& n0, int* piv)
+  static void getrf(const int& n, const int& m, std::complex<double>* a, const int& n0, int* piv, int& st)
   {
-    lapack_int status;
-    zgetrf(n, m, a, n0, piv, status);
-    return status;
+    zgetrf(n, m, a, n0, piv, st);
   }
 
-  static lapack_int getrf(const int& n, const int& m, std::complex<float>* a, const int& n0, int* piv)
+  static void getrf(const int& n, const int& m, std::complex<float>* a, const int& n0, int* piv, int& st)
   {
-    lapack_int status;
-    cgetrf(n, m, a, n0, piv, status);
-    return status;
+    cgetrf(n, m, a, n0, piv, st);
   }
 
-  static lapack_int getri(int n,
+  static void getri(int n,
                     float* restrict a,
                     int n0,
                     int const* restrict piv,
                     float* restrict work,
-                    int const& n1)
+                    int const& n1,
+                    int& status)
   {
-    lapack_int status;
     sgetri(n, a, n0, piv, work, n1, status);
-    return status;
   }
 
-  static lapack_int getri(int n,
+  static void getri(int n,
                     double* restrict a,
                     int n0,
                     int const* restrict piv,
                     double* restrict work,
-                    int const& n1)
+                    int const& n1,
+                    int& status)
   {
-    lapack_int status;
     dgetri(n, a, n0, piv, work, n1, status);
-    return status;
   }
 
-  static lapack_int getri(int n,
+  static void getri(int n,
                     std::complex<float>* restrict a,
                     int n0,
                     int const* restrict piv,
                     std::complex<float>* restrict work,
-                    int const& n1)
+                    int const& n1,
+                    int& status)
   {
-    lapack_int status;
     cgetri(n, a, n0, piv, work, n1, status);
-    return status;
   }
 
-  static lapack_int getri(int n,
+  static void getri(int n,
                     std::complex<double>* restrict a,
                     int n0,
                     int const* restrict piv,
                     std::complex<double>* restrict work,
-                    int const& n1)
+                    int const& n1,
+                    int& status)
   {
-    lapack_int status;
     zgetri(n, a, n0, piv, work, n1, status);
-    return status;
   }
 
   static void geqrf(int M,
@@ -1046,5 +1010,5 @@ struct LAPACK
   }
 };
 
-#endif
+
 #endif // OHMMS_BLAS_H

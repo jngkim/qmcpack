@@ -14,11 +14,12 @@
 //////////////////////////////////////////////////////////////////////////////////////
 
 
-#include "Message/OpenMP.h"
+#include "Concurrency/OpenMP.h"
 #include "SplineC2R.h"
 #include "spline2/MultiBsplineEval.hpp"
 #include "QMCWaveFunctions/BsplineFactory/contraction_helper.hpp"
 #include "CPU/math.hpp"
+#include "QMCWaveFunctions/BsplineFactory/SplineC2RHelper.hpp"
 
 namespace qmcplusplus
 {
@@ -54,7 +55,7 @@ bool SplineC2R<ST>::write_splines(hdf_archive& h5f)
 template<typename ST>
 inline void SplineC2R<ST>::assign_v(const PointType& r,
                                     const vContainer_type& myV,
-                                    ValueVector_t& psi,
+                                    ValueVector& psi,
                                     int first,
                                     int last) const
 {
@@ -93,7 +94,7 @@ inline void SplineC2R<ST>::assign_v(const PointType& r,
 }
 
 template<typename ST>
-void SplineC2R<ST>::evaluateValue(const ParticleSet& P, const int iat, ValueVector_t& psi)
+void SplineC2R<ST>::evaluateValue(const ParticleSet& P, const int iat, ValueVector& psi)
 {
   const PointType& r = P.activeR(iat);
   PointType ru(PrimLattice.toUnit_floor(r));
@@ -110,8 +111,8 @@ void SplineC2R<ST>::evaluateValue(const ParticleSet& P, const int iat, ValueVect
 
 template<typename ST>
 void SplineC2R<ST>::evaluateDetRatios(const VirtualParticleSet& VP,
-                                      ValueVector_t& psi,
-                                      const ValueVector_t& psiinv,
+                                      ValueVector& psi,
+                                      const ValueVector& psiinv,
                                       std::vector<TT>& ratios)
 {
   const bool need_resize = ratios_private.rows() < VP.getTotalNum();
@@ -158,153 +159,23 @@ void SplineC2R<ST>::evaluateDetRatios(const VirtualParticleSet& VP,
    */
 template<typename ST>
 inline void SplineC2R<ST>::assign_vgl(const PointType& r,
-                                      ValueVector_t& psi,
-                                      GradVector_t& dpsi,
-                                      ValueVector_t& d2psi,
+                                      ValueVector& psi,
+                                      GradVector& dpsi,
+                                      ValueVector& d2psi,
                                       int first,
                                       int last) const
 {
-  // protect last
-  last = last > kPoints.size() ? kPoints.size() : last;
-
-  constexpr ST two(2);
-  const ST g00 = PrimLattice.G(0), g01 = PrimLattice.G(1), g02 = PrimLattice.G(2), g10 = PrimLattice.G(3),
-           g11 = PrimLattice.G(4), g12 = PrimLattice.G(5), g20 = PrimLattice.G(6), g21 = PrimLattice.G(7),
-           g22 = PrimLattice.G(8);
-  const ST x = r[0], y = r[1], z = r[2];
-  const ST symGG[6] = {GGt[0], GGt[1] + GGt[3], GGt[2] + GGt[6], GGt[4], GGt[5] + GGt[7], GGt[8]};
-
-  const ST* restrict k0 = myKcart.data(0);
-  ASSUME_ALIGNED(k0);
-  const ST* restrict k1 = myKcart.data(1);
-  ASSUME_ALIGNED(k1);
-  const ST* restrict k2 = myKcart.data(2);
-  ASSUME_ALIGNED(k2);
-
-  const ST* restrict g0 = myG.data(0);
-  ASSUME_ALIGNED(g0);
-  const ST* restrict g1 = myG.data(1);
-  ASSUME_ALIGNED(g1);
-  const ST* restrict g2 = myG.data(2);
-  ASSUME_ALIGNED(g2);
-  const ST* restrict h00 = myH.data(0);
-  ASSUME_ALIGNED(h00);
-  const ST* restrict h01 = myH.data(1);
-  ASSUME_ALIGNED(h01);
-  const ST* restrict h02 = myH.data(2);
-  ASSUME_ALIGNED(h02);
-  const ST* restrict h11 = myH.data(3);
-  ASSUME_ALIGNED(h11);
-  const ST* restrict h12 = myH.data(4);
-  ASSUME_ALIGNED(h12);
-  const ST* restrict h22 = myH.data(5);
-  ASSUME_ALIGNED(h22);
-
-#pragma omp simd
-  for (size_t j = first; j < std::min(nComplexBands, last); j++)
-  {
-    const size_t jr = j << 1;
-    const size_t ji = jr + 1;
-
-    const ST kX    = k0[j];
-    const ST kY    = k1[j];
-    const ST kZ    = k2[j];
-    const ST val_r = myV[jr];
-    const ST val_i = myV[ji];
-
-    //phase
-    ST s, c;
-    qmcplusplus::sincos(-(x * kX + y * kY + z * kZ), &s, &c);
-
-    //dot(PrimLattice.G,myG[j])
-    const ST dX_r = g00 * g0[jr] + g01 * g1[jr] + g02 * g2[jr];
-    const ST dY_r = g10 * g0[jr] + g11 * g1[jr] + g12 * g2[jr];
-    const ST dZ_r = g20 * g0[jr] + g21 * g1[jr] + g22 * g2[jr];
-
-    const ST dX_i = g00 * g0[ji] + g01 * g1[ji] + g02 * g2[ji];
-    const ST dY_i = g10 * g0[ji] + g11 * g1[ji] + g12 * g2[ji];
-    const ST dZ_i = g20 * g0[ji] + g21 * g1[ji] + g22 * g2[ji];
-
-    // \f$\nabla \psi_r + {\bf k}\psi_i\f$
-    const ST gX_r = dX_r + val_i * kX;
-    const ST gY_r = dY_r + val_i * kY;
-    const ST gZ_r = dZ_r + val_i * kZ;
-    const ST gX_i = dX_i - val_r * kX;
-    const ST gY_i = dY_i - val_r * kY;
-    const ST gZ_i = dZ_i - val_r * kZ;
-
-    const ST lcart_r = SymTrace(h00[jr], h01[jr], h02[jr], h11[jr], h12[jr], h22[jr], symGG);
-    const ST lcart_i = SymTrace(h00[ji], h01[ji], h02[ji], h11[ji], h12[ji], h22[ji], symGG);
-    const ST lap_r   = lcart_r + mKK[j] * val_r + two * (kX * dX_i + kY * dY_i + kZ * dZ_i);
-    const ST lap_i   = lcart_i + mKK[j] * val_i - two * (kX * dX_r + kY * dY_r + kZ * dZ_r);
-
-    const size_t psiIndex = first_spo + jr;
-    psi[psiIndex]       = c * val_r - s * val_i;
-    psi[psiIndex + 1]   = c * val_i + s * val_r;
-    d2psi[psiIndex]     = c * lap_r - s * lap_i;
-    d2psi[psiIndex + 1] = c * lap_i + s * lap_r;
-    dpsi[psiIndex][0]     = c * gX_r - s * gX_i;
-    dpsi[psiIndex][1]     = c * gY_r - s * gY_i;
-    dpsi[psiIndex][2]     = c * gZ_r - s * gZ_i;
-    dpsi[psiIndex + 1][0] = c * gX_i + s * gX_r;
-    dpsi[psiIndex + 1][1] = c * gY_i + s * gY_r;
-    dpsi[psiIndex + 1][2] = c * gZ_i + s * gZ_r;
-  }
-
-#pragma omp simd
-  for (size_t j = std::max(nComplexBands, first); j < last; j++)
-  {
-    const size_t jr = j << 1;
-    const size_t ji = jr + 1;
-
-    const ST kX    = k0[j];
-    const ST kY    = k1[j];
-    const ST kZ    = k2[j];
-    const ST val_r = myV[jr];
-    const ST val_i = myV[ji];
-
-    //phase
-    ST s, c;
-    qmcplusplus::sincos(-(x * kX + y * kY + z * kZ), &s, &c);
-
-    //dot(PrimLattice.G,myG[j])
-    const ST dX_r = g00 * g0[jr] + g01 * g1[jr] + g02 * g2[jr];
-    const ST dY_r = g10 * g0[jr] + g11 * g1[jr] + g12 * g2[jr];
-    const ST dZ_r = g20 * g0[jr] + g21 * g1[jr] + g22 * g2[jr];
-
-    const ST dX_i = g00 * g0[ji] + g01 * g1[ji] + g02 * g2[ji];
-    const ST dY_i = g10 * g0[ji] + g11 * g1[ji] + g12 * g2[ji];
-    const ST dZ_i = g20 * g0[ji] + g21 * g1[ji] + g22 * g2[ji];
-
-    // \f$\nabla \psi_r + {\bf k}\psi_i\f$
-    const ST gX_r = dX_r + val_i * kX;
-    const ST gY_r = dY_r + val_i * kY;
-    const ST gZ_r = dZ_r + val_i * kZ;
-    const ST gX_i = dX_i - val_r * kX;
-    const ST gY_i = dY_i - val_r * kY;
-    const ST gZ_i = dZ_i - val_r * kZ;
-
-    const size_t psiIndex = first_spo + nComplexBands + j;
-    psi[psiIndex]         = c * val_r - s * val_i;
-    dpsi[psiIndex][0] = c * gX_r - s * gX_i;
-    dpsi[psiIndex][1] = c * gY_r - s * gY_i;
-    dpsi[psiIndex][2] = c * gZ_r - s * gZ_i;
-
-    const ST lcart_r = SymTrace(h00[jr], h01[jr], h02[jr], h11[jr], h12[jr], h22[jr], symGG);
-    const ST lcart_i = SymTrace(h00[ji], h01[ji], h02[ji], h11[ji], h12[ji], h22[ji], symGG);
-    const ST lap_r   = lcart_r + mKK[j] * val_r + two * (kX * dX_i + kY * dY_i + kZ * dZ_i);
-    const ST lap_i   = lcart_i + mKK[j] * val_i - two * (kX * dX_r + kY * dY_r + kZ * dZ_r);
-    d2psi[psiIndex]  = c * lap_r - s * lap_i;
-  }
+  C2R::assign_vgl_simd(r[0],r[1],r[2],psi, dpsi, d2psi,
+                       myV.data(), myG.data(), myH.data(), myV.size(), 
+                       PrimLattice.G, GGt, 
+                       myKcart.data(), mKK.data(), mKK.size(), myKcart.capacity(),
+                       first, last, nComplexBands);
 }
 
 /** assign_vgl_from_l can be used when myL is precomputed and myV,myG,myL in cartesian
    */
 template<typename ST>
-inline void SplineC2R<ST>::assign_vgl_from_l(const PointType& r,
-                                             ValueVector_t& psi,
-                                             GradVector_t& dpsi,
-                                             ValueVector_t& d2psi)
+inline void SplineC2R<ST>::assign_vgl_from_l(const PointType& r, ValueVector& psi, GradVector& dpsi, ValueVector& d2psi)
 {
   constexpr ST two(2);
   const ST x = r[0], y = r[1], z = r[2];
@@ -408,9 +279,9 @@ inline void SplineC2R<ST>::assign_vgl_from_l(const PointType& r,
     const ST gZ_i         = dZ_i - val_r * kZ;
     const size_t psiIndex = first_spo + nComplexBands + j;
     psi[psiIndex]         = c * val_r - s * val_i;
-    dpsi[psiIndex][0] = c * gX_r - s * gX_i;
-    dpsi[psiIndex][1] = c * gY_r - s * gY_i;
-    dpsi[psiIndex][2] = c * gZ_r - s * gZ_i;
+    dpsi[psiIndex][0]     = c * gX_r - s * gX_i;
+    dpsi[psiIndex][1]     = c * gY_r - s * gY_i;
+    dpsi[psiIndex][2]     = c * gZ_r - s * gZ_i;
 
     const ST lap_r  = myL[jr] + mKK[j] * val_r + two * (kX * dX_i + kY * dY_i + kZ * dZ_i);
     const ST lap_i  = myL[ji] + mKK[j] * val_i - two * (kX * dX_r + kY * dY_r + kZ * dZ_r);
@@ -421,9 +292,9 @@ inline void SplineC2R<ST>::assign_vgl_from_l(const PointType& r,
 template<typename ST>
 void SplineC2R<ST>::evaluateVGL(const ParticleSet& P,
                                 const int iat,
-                                ValueVector_t& psi,
-                                GradVector_t& dpsi,
-                                ValueVector_t& d2psi)
+                                ValueVector& psi,
+                                GradVector& dpsi,
+                                ValueVector& d2psi)
 {
   const PointType& r = P.activeR(iat);
   PointType ru(PrimLattice.toUnit_floor(r));
@@ -440,9 +311,9 @@ void SplineC2R<ST>::evaluateVGL(const ParticleSet& P,
 
 template<typename ST>
 void SplineC2R<ST>::assign_vgh(const PointType& r,
-                               ValueVector_t& psi,
-                               GradVector_t& dpsi,
-                               HessVector_t& grad_grad_psi,
+                               ValueVector& psi,
+                               GradVector& dpsi,
+                               HessVector& grad_grad_psi,
                                int first,
                                int last) const
 {
@@ -665,9 +536,9 @@ void SplineC2R<ST>::assign_vgh(const PointType& r,
 template<typename ST>
 void SplineC2R<ST>::evaluateVGH(const ParticleSet& P,
                                 const int iat,
-                                ValueVector_t& psi,
-                                GradVector_t& dpsi,
-                                HessVector_t& grad_grad_psi)
+                                ValueVector& psi,
+                                GradVector& dpsi,
+                                HessVector& grad_grad_psi)
 {
   const PointType& r = P.activeR(iat);
   PointType ru(PrimLattice.toUnit_floor(r));
@@ -683,10 +554,10 @@ void SplineC2R<ST>::evaluateVGH(const ParticleSet& P,
 
 template<typename ST>
 void SplineC2R<ST>::assign_vghgh(const PointType& r,
-                                 ValueVector_t& psi,
-                                 GradVector_t& dpsi,
-                                 HessVector_t& grad_grad_psi,
-                                 GGGVector_t& grad_grad_grad_psi,
+                                 ValueVector& psi,
+                                 GradVector& dpsi,
+                                 HessVector& grad_grad_psi,
+                                 GGGVector& grad_grad_grad_psi,
                                  int first,
                                  int last) const
 {
@@ -1152,10 +1023,10 @@ void SplineC2R<ST>::assign_vghgh(const PointType& r,
 template<typename ST>
 void SplineC2R<ST>::evaluateVGHGH(const ParticleSet& P,
                                   const int iat,
-                                  ValueVector_t& psi,
-                                  GradVector_t& dpsi,
-                                  HessVector_t& grad_grad_psi,
-                                  GGGVector_t& grad_grad_grad_psi)
+                                  ValueVector& psi,
+                                  GradVector& dpsi,
+                                  HessVector& grad_grad_psi,
+                                  GGGVector& grad_grad_grad_psi)
 {
   const PointType& r = P.activeR(iat);
   PointType ru(PrimLattice.toUnit_floor(r));

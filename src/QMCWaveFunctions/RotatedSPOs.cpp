@@ -21,8 +21,8 @@ namespace qmcplusplus
 RotatedSPOs::RotatedSPOs(std::unique_ptr<SPOSet>&& spos)
     : SPOSet(spos->isOMPoffload(), spos->hasIonDerivs(), true),
       Phi(std::move(spos)),
-      params_supplied(false),
-      nel_major_(0)
+      nel_major_(0),
+      params_supplied(false)
 {
   className      = "RotatedSPOs";
   OrbitalSetSize = Phi->getOrbitalSetSize();
@@ -30,37 +30,69 @@ RotatedSPOs::RotatedSPOs(std::unique_ptr<SPOSet>&& spos)
 
 RotatedSPOs::~RotatedSPOs() {}
 
+
+void RotatedSPOs::setRotationParameters(const std::vector<RealType>& param_list)
+{
+  params          = param_list;
+  params_supplied = true;
+}
+
+void RotatedSPOs::createRotationIndices(int nel, int nmo, RotationIndices& rot_indices)
+{
+  for (int i = 0; i < nel; i++)
+    for (int j = nel; j < nmo; j++)
+      rot_indices.emplace_back(i, j);
+}
+
+void RotatedSPOs::constructAntiSymmetricMatrix(const RotationIndices& rot_indices,
+                                               const std::vector<ValueType>& param,
+                                               ValueMatrix& rot_mat)
+{
+  assert(rot_indices.size() == param.size());
+  // Assumes rot_mat is of the correct size and initialized to zero upon entry
+
+  for (int i = 0; i < rot_indices.size(); i++)
+  {
+    const int p      = rot_indices[i].first;
+    const int q      = rot_indices[i].second;
+    const RealType x = param[i];
+
+    rot_mat[q][p] = x;
+    rot_mat[p][q] = -x;
+  }
+}
+
+
 void RotatedSPOs::buildOptVariables(const size_t nel)
 {
 #if !defined(QMC_COMPLEX)
   /* Only rebuild optimized variables if more after-rotation orbitals are needed
    * Consider ROHF, there is only one set of SPO for both spin up and down Nup > Ndown.
    * nel_major_ will be set Nup.
+   *
+   * Use the size of myVars as a flag to avoid building the rotation parameters again
+   * when a clone is made (the DiracDeterminant constructor calls buildOptVariables)
    */
-  if (nel > nel_major_)
+  if (nel > nel_major_ && myVars.size() == 0)
   {
     nel_major_ = nel;
 
     const size_t nmo = Phi->getOrbitalSetSize();
 
     // create active rotation parameter indices
-    std::vector<std::pair<int, int>> created_m_act_rot_inds;
+    RotationIndices created_m_act_rot_inds;
 
-    // only core->active rotations created
-    for (int i = 0; i < nel; i++)
-      for (int j = nel; j < nmo; j++)
-        created_m_act_rot_inds.push_back(std::pair<int, int>(i, j));
+    createRotationIndices(nel, nmo, created_m_act_rot_inds);
 
     buildOptVariables(created_m_act_rot_inds);
   }
 #endif
 }
 
-void RotatedSPOs::buildOptVariables(const std::vector<std::pair<int, int>>& rotations)
+void RotatedSPOs::buildOptVariables(const RotationIndices& rotations)
 {
 #if !defined(QMC_COMPLEX)
   const size_t nmo = Phi->getOrbitalSetSize();
-  const size_t nb  = Phi->getBasisSetSize();
 
   // create active rotations
   m_act_rot_inds = rotations;
@@ -82,8 +114,8 @@ void RotatedSPOs::buildOptVariables(const std::vector<std::pair<int, int>>& rota
     p = m_act_rot_inds[i].first;
     q = m_act_rot_inds[i].second;
     std::stringstream sstr;
-    sstr << myName << "_orb_rot_" << (p < 10 ? "0" : "") << (p < 100 ? "0" : "") << (p < 1000 ? "0" : "") << p
-         << "_" << (q < 10 ? "0" : "") << (q < 100 ? "0" : "") << (q < 1000 ? "0" : "") << q;
+    sstr << myName << "_orb_rot_" << (p < 10 ? "0" : "") << (p < 100 ? "0" : "") << (p < 1000 ? "0" : "") << p << "_"
+         << (q < 10 ? "0" : "") << (q < 100 ? "0" : "") << (q < 1000 ? "0" : "") << q;
 
     // If the user input parameters, use those. Otherwise, initialize the parameters to zero
     if (params_supplied)
@@ -125,28 +157,23 @@ void RotatedSPOs::apply_rotation(const std::vector<RealType>& param, bool use_st
   assert(param.size() == m_act_rot_inds.size());
 
   const size_t nmo = Phi->getOrbitalSetSize();
-  ValueMatrix_t rot_mat(nmo, nmo);
+  ValueMatrix rot_mat(nmo, nmo);
   rot_mat = ValueType(0);
 
-  // read out the parameters that define the rotation into an antisymmetric matrix
-  for (int i = 0; i < m_act_rot_inds.size(); i++)
-  {
-    const int p      = m_act_rot_inds[i].first;
-    const int q      = m_act_rot_inds[i].second;
-    const RealType x = param[i];
+  constructAntiSymmetricMatrix(m_act_rot_inds, param, rot_mat);
 
-    rot_mat[q][p] = x;
-    rot_mat[p][q] = -x;
-  }
-
+  /*
+    rot_mat is now an anti-hermitian matrix. Now we convert
+    it into a unitary matrix via rot_mat = exp(-rot_mat). 
+    Finally, apply unitary matrix to orbs.
+  */
   exponentiate_antisym_matrix(rot_mat);
-
   Phi->applyRotation(rot_mat, use_stored_copy);
 }
 
 
 // compute exponential of a real, antisymmetric matrix by diagonalizing and exponentiating eigenvalues
-void RotatedSPOs::exponentiate_antisym_matrix(ValueMatrix_t& mat)
+void RotatedSPOs::exponentiate_antisym_matrix(ValueMatrix& mat)
 {
   const int n = mat.rows();
   std::vector<std::complex<RealType>> mat_h(n * n, 0);
@@ -178,7 +205,7 @@ void RotatedSPOs::exponentiate_antisym_matrix(ValueMatrix_t& mat)
   if (info != 0)
   {
     std::ostringstream msg;
-    msg << "heev failed with info = " << info << " in MultiSlaterDeterminantFast::exponentiate_antisym_matrix";
+    msg << "heev failed with info = " << info << " in MultiSlaterDetTableMethod::exponentiate_antisym_matrix";
     app_log() << msg.str() << std::endl;
     APP_ABORT(msg.str());
   }
@@ -281,11 +308,11 @@ void RotatedSPOs::evaluateDerivatives(ParticleSet& P,
   const ValueType* const A(psiM_all.data());
   const ValueType* const Ainv(psiM_inv.data());
   const ValueType* const B(Bbar.data());
-  SPOSet::ValueMatrix_t T;
-  SPOSet::ValueMatrix_t Y1;
-  SPOSet::ValueMatrix_t Y2;
-  SPOSet::ValueMatrix_t Y3;
-  SPOSet::ValueMatrix_t Y4;
+  SPOSet::ValueMatrix T;
+  SPOSet::ValueMatrix Y1;
+  SPOSet::ValueMatrix Y2;
+  SPOSet::ValueMatrix Y3;
+  SPOSet::ValueMatrix Y4;
   T.resize(nel, nmo);
   Y1.resize(nel, nel);
   Y2.resize(nel, nmo);
@@ -319,18 +346,18 @@ void RotatedSPOs::evaluateDerivatives(ParticleSet& P,
                                       const std::vector<ValueType>& Coeff,
                                       const std::vector<size_t>& C2node_up,
                                       const std::vector<size_t>& C2node_dn,
-                                      const ValueVector_t& detValues_up,
-                                      const ValueVector_t& detValues_dn,
-                                      const GradMatrix_t& grads_up,
-                                      const GradMatrix_t& grads_dn,
-                                      const ValueMatrix_t& lapls_up,
-                                      const ValueMatrix_t& lapls_dn,
-                                      const ValueMatrix_t& M_up,
-                                      const ValueMatrix_t& M_dn,
-                                      const ValueMatrix_t& Minv_up,
-                                      const ValueMatrix_t& Minv_dn,
-                                      const GradMatrix_t& B_grad,
-                                      const ValueMatrix_t& B_lapl,
+                                      const ValueVector& detValues_up,
+                                      const ValueVector& detValues_dn,
+                                      const GradMatrix& grads_up,
+                                      const GradMatrix& grads_dn,
+                                      const ValueMatrix& lapls_up,
+                                      const ValueMatrix& lapls_dn,
+                                      const ValueMatrix& M_up,
+                                      const ValueMatrix& M_dn,
+                                      const ValueMatrix& Minv_up,
+                                      const ValueMatrix& Minv_dn,
+                                      const GradMatrix& B_grad,
+                                      const ValueMatrix& B_lapl,
                                       const std::vector<int>& detData_up,
                                       const size_t N1,
                                       const size_t N2,
@@ -349,8 +376,8 @@ void RotatedSPOs::evaluateDerivatives(ParticleSet& P,
   }
   if (recalculate)
   {
-    ParticleSet::ParticleGradient_t myG_temp, myG_J;
-    ParticleSet::ParticleLaplacian_t myL_temp, myL_J;
+    ParticleSet::ParticleGradient myG_temp, myG_J;
+    ParticleSet::ParticleLaplacian myL_temp, myL_J;
     const int NP = P.getTotalNum();
     myG_temp.resize(NP);
     myG_temp = 0.0;
@@ -361,7 +388,6 @@ void RotatedSPOs::evaluateDerivatives(ParticleSet& P,
     myL_J.resize(NP);
     myL_J            = 0.0;
     const size_t nmo = Phi->getOrbitalSetSize();
-    const size_t nb  = Phi->getBasisSetSize();
     const size_t nel = P.last(0) - P.first(0);
 
     const RealType* restrict C_p = Coeff.data();
@@ -410,12 +436,12 @@ void RotatedSPOs::evaluateDerivativesWF(ParticleSet& P,
                                         const std::vector<ValueType>& Coeff,
                                         const std::vector<size_t>& C2node_up,
                                         const std::vector<size_t>& C2node_dn,
-                                        const ValueVector_t& detValues_up,
-                                        const ValueVector_t& detValues_dn,
-                                        const ValueMatrix_t& M_up,
-                                        const ValueMatrix_t& M_dn,
-                                        const ValueMatrix_t& Minv_up,
-                                        const ValueMatrix_t& Minv_dn,
+                                        const ValueVector& detValues_up,
+                                        const ValueVector& detValues_dn,
+                                        const ValueMatrix& M_up,
+                                        const ValueMatrix& M_dn,
+                                        const ValueMatrix& Minv_up,
+                                        const ValueMatrix& Minv_dn,
                                         const std::vector<int>& detData_up,
                                         const std::vector<std::vector<int>>& lookup_tbl)
 {
@@ -431,7 +457,6 @@ void RotatedSPOs::evaluateDerivativesWF(ParticleSet& P,
   if (recalculate)
   {
     const size_t nmo = Phi->getOrbitalSetSize();
-    const size_t nb  = Phi->getBasisSetSize();
     const size_t nel = P.last(0) - P.first(0);
 
     table_method_evalWF(dlogpsi, nel, nmo, psiCurrent, Coeff, C2node_up, C2node_dn, detValues_up, detValues_dn, M_up,
@@ -441,26 +466,26 @@ void RotatedSPOs::evaluateDerivativesWF(ParticleSet& P,
 
 void RotatedSPOs::table_method_eval(std::vector<ValueType>& dlogpsi,
                                     std::vector<ValueType>& dhpsioverpsi,
-                                    const ParticleSet::ParticleLaplacian_t& myL_J,
-                                    const ParticleSet::ParticleGradient_t& myG_J,
+                                    const ParticleSet::ParticleLaplacian& myL_J,
+                                    const ParticleSet::ParticleGradient& myG_J,
                                     const size_t nel,
                                     const size_t nmo,
                                     const ValueType& psiCurrent,
                                     const std::vector<RealType>& Coeff,
                                     const std::vector<size_t>& C2node_up,
                                     const std::vector<size_t>& C2node_dn,
-                                    const ValueVector_t& detValues_up,
-                                    const ValueVector_t& detValues_dn,
-                                    const GradMatrix_t& grads_up,
-                                    const GradMatrix_t& grads_dn,
-                                    const ValueMatrix_t& lapls_up,
-                                    const ValueMatrix_t& lapls_dn,
-                                    const ValueMatrix_t& M_up,
-                                    const ValueMatrix_t& M_dn,
-                                    const ValueMatrix_t& Minv_up,
-                                    const ValueMatrix_t& Minv_dn,
-                                    const GradMatrix_t& B_grad,
-                                    const ValueMatrix_t& B_lapl,
+                                    const ValueVector& detValues_up,
+                                    const ValueVector& detValues_dn,
+                                    const GradMatrix& grads_up,
+                                    const GradMatrix& grads_dn,
+                                    const ValueMatrix& lapls_up,
+                                    const ValueMatrix& lapls_dn,
+                                    const ValueMatrix& M_up,
+                                    const ValueMatrix& M_dn,
+                                    const ValueMatrix& Minv_up,
+                                    const ValueMatrix& Minv_dn,
+                                    const GradMatrix& B_grad,
+                                    const ValueMatrix& B_lapl,
                                     const std::vector<int>& detData_up,
                                     const size_t N1,
                                     const size_t N2,
@@ -579,10 +604,10 @@ $
 $
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 {
-  ValueMatrix_t Table;
-  ValueMatrix_t Bbar;
-  ValueMatrix_t Y1, Y2, Y3, Y4, Y5, Y6, Y7, Y11, Y23, Y24, Y25, Y26;
-  ValueMatrix_t pK1, K1T, TK1T, pK2, K2AiB, TK2AiB, K2XA, TK2XA, K2T, TK2T, MK2T, pK3, K3T, TK3T, pK5, K5T, TK5T;
+  ValueMatrix Table;
+  ValueMatrix Bbar;
+  ValueMatrix Y1, Y2, Y3, Y4, Y5, Y6, Y7, Y11, Y23, Y24, Y25, Y26;
+  ValueMatrix pK1, K1T, TK1T, pK2, K2AiB, TK2AiB, K2XA, TK2XA, K2T, TK2T, MK2T, pK3, K3T, TK3T, pK5, K5T, TK5T;
 
   Table.resize(nel, nmo);
 
@@ -645,7 +670,7 @@ $
   //IMPORTANT NOTE: THE Dets[0]->psiMinv OBJECT DOES NOT HOLD THE INVERSE IF THE MULTIDIRACDETERMINANTBASE ONLY CONTAINS ONE ELECTRON. NEED A FIX FOR THIS CASE
   // The T matrix should be calculated and stored for use
   // T = A^{-1} \widetilde A
-  //REMINDER: that the ValueMatrix_t "matrix" stores data in a row major order and that BLAS commands assume column major
+  //REMINDER: that the ValueMatrix "matrix" stores data in a row major order and that BLAS commands assume column major
   BLAS::gemm('N', 'N', nmo, nel, nel, RealType(1.0), A, nmo, Ainv, nel, RealType(0.0), T, nmo);
 
   BLAS::gemm('N', 'N', nel, nel, nel, RealType(1.0), B, nmo, Ainv, nel, RealType(0.0), Y1.data(), nel);
@@ -732,7 +757,7 @@ $
 
 
       Vector<ValueType> WS;
-      Vector<lapack_int> Piv;
+      Vector<IndexType> Piv;
       WS.resize(k);
       Piv.resize(k);
       std::complex<RealType> logdet = 0.0;
@@ -876,18 +901,18 @@ void RotatedSPOs::table_method_evalWF(std::vector<ValueType>& dlogpsi,
                                       const std::vector<RealType>& Coeff,
                                       const std::vector<size_t>& C2node_up,
                                       const std::vector<size_t>& C2node_dn,
-                                      const ValueVector_t& detValues_up,
-                                      const ValueVector_t& detValues_dn,
-                                      const ValueMatrix_t& M_up,
-                                      const ValueMatrix_t& M_dn,
-                                      const ValueMatrix_t& Minv_up,
-                                      const ValueMatrix_t& Minv_dn,
+                                      const ValueVector& detValues_up,
+                                      const ValueVector& detValues_dn,
+                                      const ValueMatrix& M_up,
+                                      const ValueMatrix& M_dn,
+                                      const ValueMatrix& Minv_up,
+                                      const ValueMatrix& Minv_dn,
                                       const std::vector<int>& detData_up,
                                       const std::vector<std::vector<int>>& lookup_tbl)
 {
-  ValueMatrix_t Table;
-  ValueMatrix_t Y5, Y6, Y7;
-  ValueMatrix_t pK4, K4T, TK4T;
+  ValueMatrix Table;
+  ValueMatrix Y5, Y6, Y7;
+  ValueMatrix pK4, K4T, TK4T;
 
   Table.resize(nel, nmo);
 
@@ -915,7 +940,7 @@ void RotatedSPOs::table_method_evalWF(std::vector<ValueType>& dlogpsi,
   //IMPORTANT NOTE: THE Dets[0]->psiMinv OBJECT DOES NOT HOLD THE INVERSE IF THE MULTIDIRACDETERMINANTBASE ONLY CONTAINS ONE ELECTRON. NEED A FIX FOR THIS CASE
   // The T matrix should be calculated and stored for use
   // T = A^{-1} \widetilde A
-  //REMINDER: that the ValueMatrix_t "matrix" stores data in a row major order and that BLAS commands assume column major
+  //REMINDER: that the ValueMatrix "matrix" stores data in a row major order and that BLAS commands assume column major
   BLAS::gemm('N', 'N', nmo, nel, nel, RealType(1.0), A, nmo, Ainv, nel, RealType(0.0), T, nmo);
 
   //const0 = C_{0}*det(A_{0\downarrow})+\sum_{i=1} C_{i}*det(A_{i\downarrow})* det(\alpha_{i\uparrow})
@@ -978,7 +1003,7 @@ void RotatedSPOs::table_method_evalWF(std::vector<ValueType>& dlogpsi,
       }
 
       Vector<ValueType> WS;
-      Vector<lapack_int> Piv;
+      Vector<IndexType> Piv;
       WS.resize(k);
       Piv.resize(k);
       std::complex<RealType> logdet = 0.0;

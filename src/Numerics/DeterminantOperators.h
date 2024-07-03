@@ -28,22 +28,82 @@
 #include "CPU/math.hpp"
 #include "CPU/SIMD/inner_product.hpp"
 #include "Numerics/determinant_operators.h"
+#include "type_traits/template_types.hpp"
 
 namespace qmcplusplus
 {
 /** LU factorization of double */
-template<typename T>
-inline void LUFactorization(int n, int m, T* restrict a, int n0, lapack_int* restrict piv)
+inline void LUFactorization(int n, int m, double* restrict a, int n0, int* restrict piv)
 {
-  auto status= LAPACK::getrf(n, m, a, n0, piv);
+  int status;
+  dgetrf(n, m, a, n0, piv, status);
+}
+
+/** LU factorization of float */
+inline void LUFactorization(int n, int m, float* restrict a, const int& n0, int* restrict piv)
+{
+  int status;
+  sgetrf(n, m, a, n0, piv, status);
+}
+
+/** LU factorization of std::complex<double> */
+inline void LUFactorization(int n, int m, std::complex<double>* restrict a, int n0, int* restrict piv)
+{
+  int status;
+  zgetrf(n, m, a, n0, piv, status);
+}
+
+/** LU factorization of complex<float> */
+inline void LUFactorization(int n, int m, std::complex<float>* restrict a, int n0, int* restrict piv)
+{
+  int status;
+  cgetrf(n, m, a, n0, piv, status);
 }
 
 /** Inversion of a double matrix after LU factorization*/
-template<typename T>
-inline void InvertLU(int n, T* restrict a, int n0, lapack_int* restrict piv, T* restrict work, int n1)
+inline void InvertLU(int n, double* restrict a, int n0, int* restrict piv, double* restrict work, int n1)
 {
-  auto status=LAPACK::getri(n, a, n0, piv, work, n1);
+  int status;
+  dgetri(n, a, n0, piv, work, n1, status);
 }
+
+/** Inversion of a float matrix after LU factorization*/
+inline void InvertLU(const int& n,
+                     float* restrict a,
+                     const int& n0,
+                     int* restrict piv,
+                     float* restrict work,
+                     const int& n1)
+{
+  int status;
+  sgetri(n, a, n0, piv, work, n1, status);
+}
+
+/** Inversion of a std::complex<double> matrix after LU factorization*/
+inline void InvertLU(int n,
+                     std::complex<double>* restrict a,
+                     int n0,
+                     int* restrict piv,
+                     std::complex<double>* restrict work,
+                     int n1)
+{
+  int status;
+  zgetri(n, a, n0, piv, work, n1, status);
+}
+
+/** Inversion of a complex<float> matrix after LU factorization*/
+inline void InvertLU(int n,
+                     std::complex<float>* restrict a,
+                     int n0,
+                     int* restrict piv,
+                     std::complex<float>* restrict work,
+                     int n1)
+{
+  int status;
+  cgetri(n, a, n0, piv, work, n1, status);
+}
+
+/** @}*/
 
 /** inverse a matrix
  * @param x starting address of an n-by-m matrix
@@ -54,7 +114,7 @@ inline void InvertLU(int n, T* restrict a, int n0, lapack_int* restrict piv, T* 
  * @return determinant
  */
 template<class T>
-inline T Invert(T* restrict x, int n, int m, T* restrict work, lapack_int* restrict pivot)
+inline T Invert(T* restrict x, int n, int m, T* restrict work, int* restrict pivot)
 {
   T detvalue(1.0);
   LUFactorization(n, m, x, n, pivot);
@@ -77,7 +137,7 @@ inline T Invert(T* restrict x, int n, int m, T* restrict work, lapack_int* restr
  * @return determinant
  */
 template<class T>
-inline T Determinant(T* restrict x, int n, int m, lapack_int* restrict pivot)
+inline T Determinant(T* restrict x, int n, int m, int* restrict pivot)
 {
   T detvalue(1.0);
   LUFactorization(n, m, x, n, pivot);
@@ -102,13 +162,13 @@ inline T Determinant(T* restrict x, int n, int m, lapack_int* restrict pivot)
 template<class T>
 inline T Invert(T* restrict x, int n, int m)
 {
-  std::vector<lapack_int> pivot(n);
+  std::vector<int> pivot(n);
   std::vector<T> work(n);
   return Invert(x, n, m, work.data(), pivot.data());
 }
 
 template<class T, class T1>
-inline void InvertWithLog(T* restrict x, int n, int m, T* restrict work, lapack_int* restrict pivot, std::complex<T1>& logdet)
+inline void InvertWithLog(T* restrict x, int n, int m, T* restrict work, int* restrict pivot, std::complex<T1>& logdet)
 {
   LUFactorization(n, m, x, n, pivot);
   logdet = std::complex<T1>();
@@ -125,9 +185,9 @@ inline void InvertWithLog(T* restrict x, int n, int m, T* restrict work, lapack_
 template<class MatrixA>
 inline typename MatrixA::value_type invert_matrix(MatrixA& M, bool getdet = true)
 {
-  typedef typename MatrixA::value_type value_type;
-  const int n = M.rows();
-  std::vector<lapack_int> pivot(n);
+  using value_type = typename MatrixA::value_type;
+  const int n      = M.rows();
+  std::vector<int> pivot(n);
   std::vector<value_type> work(n);
   LUFactorization(n, n, M.data(), n, pivot.data());
   value_type det0 = 1.0;
@@ -181,13 +241,13 @@ inline typename MatA::value_type DetRatioByColumn(const MatA& Minv, const VecB& 
  * @param rowchanged row index to be replaced
  * @param c_ratio determinant-ratio with the row replacement
  */
-template<class MatA, class VecT>
-inline void InverseUpdateByRow(MatA& Minv,
-                               VecT& newrow,
-                               VecT& rvec,
-                               VecT& rvecinv,
+template<typename T, typename ALLOC>
+inline void InverseUpdateByRow(Matrix<T, ALLOC>& Minv,
+                               Vector<T, ALLOC>& newrow,
+                               Vector<T, ALLOC>& rvec,
+                               Vector<T, ALLOC>& rvecinv,
                                int rowchanged,
-                               typename MatA::value_type c_ratio)
+                               T c_ratio)
 {
   //using gemv+ger
   det_row_update(Minv.data(), newrow.data(), Minv.cols(), rowchanged, c_ratio, rvec.data(), rvecinv.data());
@@ -203,13 +263,13 @@ inline void InverseUpdateByRow(MatA& Minv,
   //for(int k=0; k<ncols; k++) Minv(rowchanged,k) *= ratio_inv;
 }
 
-template<typename MatA, typename VecT>
-inline void InverseUpdateByColumn(MatA& Minv,
-                                  VecT& newcol,
-                                  VecT& rvec,
-                                  VecT& rvecinv,
+template<typename T, typename ALLOC>
+inline void InverseUpdateByColumn(Matrix<T, ALLOC>& Minv,
+                                  Vector<T, ALLOC>& newcol,
+                                  Vector<T, ALLOC>& rvec,
+                                  Vector<T, ALLOC>& rvecinv,
                                   int colchanged,
-                                  typename MatA::value_type c_ratio)
+                                  T c_ratio)
 {
   det_col_update(Minv.data(), newcol.data(), Minv.rows(), colchanged, c_ratio, rvec.data(), rvecinv.data());
   //int nrows=Minv.rows();
@@ -223,6 +283,5 @@ inline void InverseUpdateByColumn(MatA& Minv,
   //}
   //for(int k=0; k<nrows; k++) Minv(k,colchanged) *= ratio_inv;
 }
-
 } // namespace qmcplusplus
 #endif

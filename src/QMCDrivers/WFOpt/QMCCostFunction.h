@@ -38,7 +38,7 @@ public:
   ~QMCCostFunction() override;
 
   void getConfigurations(const std::string& aroot) override;
-  void checkConfigurations() override;
+  void checkConfigurations(EngineHandle& handle) override;
 #ifdef HAVE_LMY_ENGINE
   void engine_checkConfigurations(cqmc::engine::LMYEngine<Return_t>* EngineObj,
                                   DescentEngine& descentEngineObj,
@@ -60,7 +60,7 @@ protected:
   std::vector<Matrix<Return_rt>*> HDerivRecords;
   Return_rt CSWeight;
 
-  Return_rt correlatedSampling(bool needGrad = true) override;
+  EffectiveWeight correlatedSampling(bool needGrad = true) override;
 
 #ifdef HAVE_LMY_ENGINE
   int total_samples();

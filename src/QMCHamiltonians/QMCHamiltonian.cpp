@@ -17,7 +17,6 @@
 //////////////////////////////////////////////////////////////////////////////////////
 
 #include "QMCHamiltonian.h"
-#include "Particle/WalkerSetRef.h"
 #include "Particle/DistanceTable.h"
 #include "QMCWaveFunctions/TrialWaveFunction.h"
 #include "QMCHamiltonians/NonLocalECPotential.h"
@@ -26,6 +25,7 @@
 #ifdef QMC_CUDA
 #include "Particle/MCWalkerConfiguration.h"
 #endif
+#include "type_traits/ConvertToReal.h"
 
 namespace qmcplusplus
 {
@@ -522,7 +522,7 @@ QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateDeterministic(ParticleS
     ScopedTimer h_timer(my_timers_[i]);
     const auto LocalEnergyComponent = H[i]->evaluateDeterministic(P);
     if (std::isnan(LocalEnergyComponent))
-      APP_ABORT("QMCHamiltonian::evaluate component " + H[i]->getName() + " returns NaN\n");
+      APP_ABORT("QMCHamiltonian::evaluateDeterministic component " + H[i]->getName() + " returns NaN\n");
     LocalEnergy += LocalEnergyComponent;
     H[i]->setObservables(Observables);
 #if !defined(REMOVE_TRACEMANAGER)
@@ -538,8 +538,9 @@ QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateDeterministic(ParticleS
 }
 void QMCHamiltonian::updateNonKinetic(OperatorBase& op, QMCHamiltonian& ham, ParticleSet& pset)
 {
+  // It's much better to be able to see where this is coming from.  It is caught just fine.
   if (std::isnan(op.getValue()))
-    APP_ABORT("QMCHamiltonian::evaluate component " + op.getName() + " returns NaN\n");
+    throw std::runtime_error("QMCHamiltonian::updateNonKinetic component " + op.getName() + " returns NaN\n");
   // The following is a ridiculous breach of encapsulation.
   ham.LocalEnergy += op.getValue();
   op.setObservables(ham.Observables);
@@ -822,7 +823,7 @@ std::vector<QMCHamiltonian::FullPrecRealType> QMCHamiltonian::mw_evaluateWithTop
 }
 void QMCHamiltonian::evaluateElecGrad(ParticleSet& P,
                                       TrialWaveFunction& psi,
-                                      ParticleSet::ParticlePos_t& Egrad,
+                                      ParticleSet::ParticlePos& Egrad,
                                       RealType delta)
 {
   int nelec = P.getTotalNum();
@@ -860,11 +861,11 @@ void QMCHamiltonian::evaluateElecGrad(ParticleSet& P,
 QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateIonDerivs(ParticleSet& P,
                                                                    ParticleSet& ions,
                                                                    TrialWaveFunction& psi,
-                                                                   ParticleSet::ParticlePos_t& hf_term,
-                                                                   ParticleSet::ParticlePos_t& pulay_terms,
-                                                                   ParticleSet::ParticlePos_t& wf_grad)
+                                                                   ParticleSet::ParticlePos& hf_term,
+                                                                   ParticleSet::ParticlePos& pulay_terms,
+                                                                   ParticleSet::ParticlePos& wf_grad)
 {
-  ParticleSet::ParticleGradient_t wfgradraw_(ions.getTotalNum());
+  ParticleSet::ParticleGradient wfgradraw_(ions.getTotalNum());
   wfgradraw_           = 0.0;
   RealType localEnergy = 0.0;
 
@@ -874,7 +875,7 @@ QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateIonDerivs(ParticleSet& 
   for (int iat = 0; iat < ions.getTotalNum(); iat++)
   {
     wfgradraw_[iat] = psi.evalGradSource(P, ions, iat);
-    convert(wfgradraw_[iat], wf_grad[iat]);
+    convertToReal(wfgradraw_[iat], wf_grad[iat]);
   }
   return localEnergy;
 }
@@ -882,11 +883,11 @@ QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateIonDerivs(ParticleSet& 
 QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateIonDerivsDeterministic(ParticleSet& P,
                                                                                 ParticleSet& ions,
                                                                                 TrialWaveFunction& psi,
-                                                                                ParticleSet::ParticlePos_t& hf_term,
-                                                                                ParticleSet::ParticlePos_t& pulay_terms,
-                                                                                ParticleSet::ParticlePos_t& wf_grad)
+                                                                                ParticleSet::ParticlePos& hf_term,
+                                                                                ParticleSet::ParticlePos& pulay_terms,
+                                                                                ParticleSet::ParticlePos& wf_grad)
 {
-  ParticleSet::ParticleGradient_t wfgradraw_(ions.getTotalNum());
+  ParticleSet::ParticleGradient wfgradraw_(ions.getTotalNum());
   wfgradraw_           = 0.0;
   RealType localEnergy = 0.0;
 
@@ -896,7 +897,7 @@ QMCHamiltonian::FullPrecRealType QMCHamiltonian::evaluateIonDerivsDeterministic(
   for (int iat = 0; iat < ions.getTotalNum(); iat++)
   {
     wfgradraw_[iat] = psi.evalGradSource(P, ions, iat);
-    convert(wfgradraw_[iat], wf_grad[iat]);
+    convertToReal(wfgradraw_[iat], wf_grad[iat]);
   }
   return localEnergy;
 }
@@ -934,7 +935,7 @@ void QMCHamiltonian::resetTargetParticleSet(ParticleSet& P)
     auxH[i]->resetTargetParticleSet(P);
 }
 
-void QMCHamiltonian::setRandomGenerator(RandomGenerator_t* rng)
+void QMCHamiltonian::setRandomGenerator(RandomGenerator* rng)
 {
   for (int i = 0; i < H.size(); i++)
     H[i]->setRandomGenerator(rng);

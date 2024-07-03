@@ -87,7 +87,7 @@ void Communicate::initialize(const mpi3::environment& env)
   d_ncontexts = comm.size();
   d_groupid   = 0;
   d_ngroups   = 1;
-#ifdef __linux__
+#ifndef __linux__
   for (int proc = 0; proc < OHMMS::Controller->size(); proc++)
   {
     if (OHMMS::Controller->rank() == proc)
@@ -136,7 +136,7 @@ void Communicate::initializeAsNodeComm(const Communicate& parent) {}
 
 void Communicate::finalize() {}
 
-void Communicate::abort() const { std::abort(); }
+void Communicate::abort() const { std::_Exit(EXIT_FAILURE); }
 
 void Communicate::barrier() const {}
 
