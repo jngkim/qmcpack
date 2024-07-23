@@ -57,7 +57,7 @@ class DelayedUpdateSYCL
   // the range of prefetched_Ainv_rows
   PrefetchedRange prefetched_range;
   // Ainv prefetch buffer
-  Matrix<T> Ainv_buffer;
+  Matrix<T, SYCLHostAllocator<T>> Ainv_buffer;
 
   sycl::queue m_queue_;
 

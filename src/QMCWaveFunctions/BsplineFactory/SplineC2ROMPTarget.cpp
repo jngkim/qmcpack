@@ -538,7 +538,7 @@ void SplineC2ROMPTarget<ST>::evaluateVGL(const ParticleSet& P,
   const PointType& r = P.activeR(iat);
   PointType ru(PrimLattice.toUnit_floor(r));
 
-  const size_t ChunkSizePerTeam = 512;
+  const size_t ChunkSizePerTeam = 192;;
   const int NumTeams            = (myV.size() + ChunkSizePerTeam - 1) / ChunkSizePerTeam;
 
   const auto spline_padded_size = myV.size();

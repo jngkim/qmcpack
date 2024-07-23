@@ -642,7 +642,8 @@ CoulombPBCAA::Return_t CoulombPBCAA::evalSR(ParticleSet& P)
     mRealType esum   = 0.0;
     const auto& dist = d_aa.getDistRow(ipart);
     for (size_t j = 0; j < ipart; ++j)
-      esum += Zat[j] * rVs->splint(dist[j]) / dist[j];
+      esum += Zat[j] * rVs->splint_over_r(dist[j]);
+      //esum += Zat[j] * rVs->splint(dist[j]) / dist[j];
     SR += Zat[ipart] * esum;
 
     const size_t ipart_reverse = NumCenters - ipart;
@@ -652,7 +653,8 @@ CoulombPBCAA::Return_t CoulombPBCAA::evalSR(ParticleSet& P)
     esum              = 0.0;
     const auto& dist2 = d_aa.getDistRow(ipart_reverse);
     for (size_t j = 0; j < ipart_reverse; ++j)
-      esum += Zat[j] * rVs->splint(dist2[j]) / dist2[j];
+      esum += Zat[j] * rVs->splint_over_r(dist2[j]);
+      //esum += Zat[j] * rVs->splint(dist2[j]) / dist2[j];
     SR += Zat[ipart_reverse] * esum;
   }
   return SR;
