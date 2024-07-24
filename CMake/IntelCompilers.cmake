@@ -21,9 +21,9 @@ if(QMC_OMP)
         # for ahead-of-time compilation and linking
         set(OPENMP_OFFLOAD_COMPILE_OPTIONS "-fopenmp-targets=spir64_gen")
         if(DEFINED OFFLOAD_ARCH)
-          set(OpenMP_OFFLOAD_LINKER_FLAGS "-Xs \"-device ${OFFLOAD_ARCH}\"")
+          set(OpenMP_OFFLOAD_LINKER_FLAGS "-Xs \"-device ${OFFLOAD_ARCH} \" -ftarget-register-alloc-mode=${OFFLOAD_ARCH}:large ")
         else()
-          set(OpenMP_OFFLOAD_LINKER_FLAGS "-Xs \"-device ${QMC_GPU_ARCHS}\"")
+          set(OpenMP_OFFLOAD_LINKER_FLAGS "-Xs \"-device ${QMC_GPU_ARCHS} \" -ftarget-register-alloc-mode=${QMC_GPU_ARCHS}:large ")
         endif()
       else()
         set(OFFLOAD_TARGET
