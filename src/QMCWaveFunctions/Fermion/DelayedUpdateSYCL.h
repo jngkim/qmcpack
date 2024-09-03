@@ -59,7 +59,7 @@ class DelayedUpdateSYCL
   // Ainv prefetch buffer
   Matrix<T, SYCLHostAllocator<T>> Ainv_buffer;
 
-  sycl::queue m_queue_;
+  sycl::queue& m_queue_;
 
   /// reset delay count to 0
   inline void clearDelayCount()
@@ -70,9 +70,10 @@ class DelayedUpdateSYCL
 
 public:
   /// default constructor
-  DelayedUpdateSYCL() : delay_count(0) { m_queue_ = createSYCLInOrderQueueOnDefaultDevice(); }
+  //DelayedUpdateSYCL() : delay_count(0) { m_queue_ = createSYCLInOrderQueueOnDefaultDevice(); }
+  DelayedUpdateSYCL() : delay_count(0), m_queue_{getSYCLInOrderQueueOnDefaultDevice()} {}
 
-  ~DelayedUpdateSYCL() { syclSolver::freeBuffer(); }
+  ~DelayedUpdateSYCL() { } //syclSolver::freeBuffer(); }
 
   /** resize the internal storage
    * @param norb number of electrons/orbitals
@@ -130,8 +131,12 @@ public:
     if (!prefetched_range.checkRange(rowchanged))
     {
       const int last_row = std::min(rowchanged + Ainv_buffer.rows(), Ainv.rows());
-      m_queue_.memcpy(Ainv_buffer.data(), Ainv_gpu[rowchanged], invRow.size() * (last_row - rowchanged) * sizeof(T))
-          .wait();
+#ifdef ENABLE_OFFLOAD
+      m_queue_.wait();
+      omp_target_memcpy(Ainv_buffer.data(), Ainv_gpu[rowchanged], invRow.size() * (last_row - rowchanged) * sizeof(T), 0, 0, omp_get_initial_device(), 0);
+#else
+      m_queue_.memcpy(Ainv_buffer.data(), Ainv_gpu[rowchanged], invRow.size() * (last_row - rowchanged) * sizeof(T)).wait();
+#endif
       prefetched_range.setRange(rowchanged, last_row);
     }
 
@@ -202,7 +207,6 @@ public:
       const int lda_Binv = Binv.cols();
 
       m_queue_.memcpy(U_gpu.data(), U.data(), norb * delay_count * sizeof(T));
-      m_queue_.memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T));
 
       syclBLAS::gemm(m_queue_, 'T', 'N', delay_count, norb, norb, cone, U_gpu.data(), norb, Ainv_gpu.data(), norb,
                      czero, temp_gpu.data(), lda_Binv);
@@ -210,6 +214,7 @@ public:
       applyW_stageV_sycl(m_queue_, delay_list.data(), delay_count, temp_gpu.data(), norb, temp_gpu.cols(), V_gpu.data(),
                          Ainv_gpu.data());
 
+      m_queue_.memcpy(Binv_gpu.data(), Binv.data(), lda_Binv * delay_count * sizeof(T));
       syclBLAS::gemm(m_queue_, 'N', 'N', norb, delay_count, delay_count, cone, V_gpu.data(), norb, Binv_gpu.data(),
                      lda_Binv, czero, U_gpu.data(), norb);
 

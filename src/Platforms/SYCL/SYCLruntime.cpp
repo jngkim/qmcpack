@@ -22,6 +22,21 @@ sycl::queue createSYCLInOrderQueueOnDefaultDevice()
   return sycl::queue(getSYCLDefaultDeviceDefaultQueue().get_context(), getSYCLDefaultDeviceDefaultQueue().get_device(),
                      sycl::property::queue::in_order());
 }
+sycl::queue& getSYCLInOrderQueueOnDefaultDevice()
+{
+  static std::vector<sycl::queue*> queue_pool;
+  if(queue_pool.empty())
+  {
+    queue_pool.resize(omp_get_max_threads());
+    queue_pool[0] = &getSYCLDefaultDeviceDefaultQueue();
+    for(int i=1; i<queue_pool.size(); ++i)
+      queue_pool[i] = new sycl::queue{getSYCLDefaultDeviceDefaultQueue().get_context(), 
+          getSYCLDefaultDeviceDefaultQueue().get_device(), 
+          sycl::property::queue::in_order()};
+  }
+  int iq = omp_get_thread_num() % queue_pool.size();
+  return *queue_pool[iq];
+}
 
 sycl::queue createSYCLQueueOnDefaultDevice()
 {

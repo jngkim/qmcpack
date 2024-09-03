@@ -25,6 +25,8 @@ sycl::queue createSYCLQueueOnDefaultDevice();
 /// query free memory on the default device
 size_t getSYCLdeviceFreeMem();
 
+///return reference to reduce queue creation.
+sycl::queue& getSYCLInOrderQueueOnDefaultDevice();
 } // namespace qmcplusplus
 
 #endif
