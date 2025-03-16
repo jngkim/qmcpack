@@ -35,8 +35,8 @@ template<typename T, typename T_FP>
 class DelayedUpdateSYCL
 {
   // Data staged during for delayed acceptRows
-  Matrix<T> U;
-  Matrix<T> Binv;
+  Matrix<T, SYCLHostAllocator<T>> U;
+  Matrix<T, SYCLHostAllocator<T>> Binv;
   Matrix<T> V;
   //Matrix<T> tempMat; // for debugging only
   Matrix<T, SYCLAllocator<T>> temp_gpu;
@@ -57,7 +57,7 @@ class DelayedUpdateSYCL
   // the range of prefetched_Ainv_rows
   PrefetchedRange prefetched_range;
   // Ainv prefetch buffer
-  Matrix<T> Ainv_buffer;
+  Matrix<T, SYCLHostAllocator<T>> Ainv_buffer;
 
   sycl::queue m_queue_;
 
@@ -95,6 +95,18 @@ public:
     Binv_gpu.resize(delay, delay);
     //delay_list_gpu.resize(delay);
     Ainv_gpu.resize(norb, norb);
+  }
+
+  inline void prepareForDeviceCopy(const Matrix<T>& mat) const
+  {
+    if(mat.size())
+      sycl::ext::oneapi::experimental::prepare_for_device_copy(mat.data(), mat.size() * sizeof(T), m_queue_);
+  }
+
+  inline void releaseFromDeviceCopy(const Matrix<T>& mat) const
+  {
+    if(mat.size())
+      sycl::ext::oneapi::experimental::release_from_device_copy(mat.data(), m_queue_);
   }
 
   /** compute the inverse of the transpose of matrix A and its determinant value in log
