@@ -1700,7 +1700,7 @@ void SplineC2ROMPTarget<ST>::evaluate_notranspose(const ParticleSet& P,
                                                   ValueMatrix& d2logdet)
 {
   // chunk the [first, last) loop into blocks to save temporary memory usage
-  const int block_size = 16;
+  const int block_size = 32;
 
   // reference vectors refer to the rows of matrices
   std::vector<ValueVector> multi_psi_v;
